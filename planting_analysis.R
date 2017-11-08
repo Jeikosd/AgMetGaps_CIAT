@@ -1,5 +1,7 @@
 # In linux cd /mnt/workspace_cluster_9/AgMetGaps/
 
+# /mnt/workspace_cluster_9/AgMetGaps/
+
 setwd('C:/Users/AESQUIVEL/AppData/Roaming/Microsoft/Windows/Network Shortcuts/AgMetGaps')
 
 ##################################################################
@@ -37,7 +39,7 @@ library(chron)
 
 # D:/AgMaps/planting_dates/calendar/
 
-pdate <- raster(paste0('05-Crop Calendar Sacks/', 'Rice.crop.calendar.nc'), varname = 'plant') %>% 
+pdate <- raster(paste0('Inputs/05-Crop Calendar Sacks/', 'Rice.crop.calendar.nc'), varname = 'plant') %>% 
           crop(extent(-180, 180, -50, 50)) 
 
 pdate_points <- rasterToPoints(pdate) %>%
@@ -46,7 +48,7 @@ pdate_points <- rasterToPoints(pdate) %>%
   mutate(month_start =  month.day.year(julian.start)$month)
 
 
-hdate <- raster(paste0('05-Crop Calendar Sacks/', 'Rice.crop.calendar.nc'), varname = 'harvest') %>% 
+hdate <- raster(paste0('Inputs/05-Crop Calendar Sacks/', 'Rice.crop.calendar.nc'), varname = 'harvest') %>% 
   crop(extent(-180, 180, -50, 50)) 
 
 hdate_points <- rasterToPoints(hdate) %>%
@@ -72,7 +74,7 @@ crop.time <- date_points %>%
   arrange(., group_by = season)
 
 
-
+# write.csv(x = crop.time, file = 'Rice_first.csv')
 
 
 
@@ -80,26 +82,46 @@ crop.time <- date_points %>%
 ##########        Precipitation: Chirps                 ########## 
 ##################################################################
 
-
+# 'D:/AgMaps/Chips_Monthly/'
 ## asignar la banda a que Año y mes pertenecen
 n_bands <- nc_open(paste0('Chips_Monthly/', 'chirps-v2.0.monthly.nc'))$dim$time$len
 n_bands <- n_bands - 8 # temporal
 
 
 
+# To use the spatial polygons information in the velox strack to points 
+sp_pdate <- rasterToPolygons(pdate,  dissolve = F) 
+
+
+
+
+#### Create a function to strack the points 
+velox.points <- function(velox.data, sp.I){
+  velox_points <- velox.data$extract(sp=sp_pdate, fun=mean)  
+  # points <- bind_cols(sp_pdate %>% coordinates, velox_points)
+return(points)}
+
+
+
+
+
+
+
+
+
+
+
 ## read monthly precipitation rasters 
 dates_raster <- str_extract(nc_open(paste0('Chips_Monthly/', 'chirps-v2.0.monthly.nc'))$dim$time$units, "\\d{4}-\\d{1}-\\d{1}") %>%
-  as.Date %>%
+  as.Date() %>%
   seq(by = "month", length.out = n_bands) %>%
   data_frame(date = .) %>%
   mutate(year = year(date), month = month(date)) %>%
   mutate(band = 1:n_bands, file = rep(paste0('Chips_Monthly/', 'chirps-v2.0.monthly.nc'), n_bands)) %>%
-  filter(month %in% crop.time$month) %>% 
+  filter(month %in% crop.time$month) %>% #  filter(row_number() < 5) %>% 
   mutate(load_raster = map2(.x = file, .y = band, .f = raster)) %>%
-  mutate(raster_df = map(.x = load_raster, .f = velox::velox))
-
-
-
+  mutate(raster_df = map(.x = load_raster, .f = velox::velox)) # Creating VeloxRaster Objects
+  
 
 
 
@@ -115,45 +137,11 @@ start <- dates_raster %>%
 
 
 
- 
-
-  
-  
-
-
-  
+#### proof1 extract points 
+dates_raster %>% 
+  mutate(points.Crop = map2(.x = raster_df, .y = sp_pdate, .f = velox.points)) # aqui estoy trabajando
 
 
 
-# dates <- seq(dates_raster, by = "month", length.out = n_bands)
 
 
-# nc_open(paste0(info, 'chirps-v2.0.monthly.nc'))$dim$time$units
-
-#months <- 1:12
-#ncmeta::nc_dim(paste0(info, 'chirps-v2.0.monthly.nc'), 2)
-#filename = paste0(info, 'chirps-v2.0.monthly.nc')
-#nbands()
-#n_bands <- nc_open(paste0(info, 'chirps-v2.0.monthly.nc'))$dim$time$len
-
-#ncvar_get(nc)
-#tidync(x  = paste0(info, 'chirps-v2.0.monthly.nc')) %>% 
-#  hyper_tibble()
-#num_bands <- 1:2
-#x <- raster(paste0(info, 'chirps-v2.0.monthly.nc'))
-#y <- map2(.x = paste0(info, 'chirps-v2.0.monthly.nc'), .y = num_bands, .f = raster)
-#x <- map(.x = y, .f = velox::velox)
-#x <- velox(x)
-#x$extract(sp_pdate, fun = mean)
-#sp_pdate <- rasterToPolygons(pdate,  dissolve = F) 
-#x$extract(sp_pdate, fun = mean)
-
-#map(.x = y, .f = velox::velox)
-#map2(.x = x$extract, .f = mean)
-#values <- x$extract(y, fun = mean)
-
-#lapply(paste0(info, 'chirps-v2.0.monthly.nc'), raster, band = num_bands)
-#date <- magrittr::extract2(x@z, 1)
-#raster_month <- month(date)
-#raster::extract(x)
-#velox(paste0(info, 'chirps-v2.0.monthly.nc'), band = 1)
