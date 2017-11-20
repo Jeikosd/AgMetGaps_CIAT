@@ -14,7 +14,7 @@ library(purrr)
 source("main_functions.R")
 
 path <- '/mnt/workspace_cluster_9/AgMetGaps/Inputs/05-Crop Calendar Sacks/'
-planting <- c('Rice.crop.calendar.nc', 'Maize.crop.calendar.nc', 'wheat.crop.calendar.nc')
+planting <- c('Rice.crop.calendar.nc', 'Maize.crop.calendar.nc', 'wheat.crop.calendar.nc')  ## wheat winter???
 out_path <- '/mnt/workspace_cluster_9/AgMetGaps/weather_analysis/spatial_points/'    ## folder del proyecto para pegar la informacion necesaria
 extent_information <- c(-180,  180,  -50,   50)  ## extent with where is the information (chirps!!!)
 raster_source <- 'sacks'
@@ -27,10 +27,74 @@ rm(list = ls())
 
 
 ###
+## code to make time series climate from chirps for each point in the calendar polygons
+
+library(lubridate)
+library(tidyverse)
+library(raster)
+library(future)
+library(velox)
+
+chirps_path <- '/mnt/data_cluster_4/observed/gridded_products/chirps/daily/'
+chirps_file <- list.files(chirps_path, pattern = '.tif$', full.names = T)
 
 
 
+raster_files <- chirps_file %>%
+  data_frame(file = .) %>%
+  mutate(date = purrr::map(.x = file, .f = extract_date)) %>%
+  tidyr::unnest() %>%
+  mutate(year = lubridate::year(date),
+         month = lubridate::month(date),
+         day = lubridate::day(date))
 
+x <- raster_files %>%
+  filter(year <= 1982) 
+
+
+# x <- raster_files %>%
+#   filter(year <= 1982) %>%
+#   pull(file)
+
+x <- x %>%
+  base::split(.$year, drop = TRUE) %>%
+  purrr::map(.f = filter, month == 1) %>%
+  purrr::map(.f = pull, file)
+
+## cargar los puntos que se van a utilizar para extraer
+
+
+local_cpu <- rep("localhost", availableCores() - 3)
+# external_cpu <- rep("caribe.ciat.cgiar.org", 8)  # server donde trabaja Alejandra
+external_cpu <- rep("climate.ciat.cgiar.org", each = 4)
+
+workers <- c(local_cpu, external_cpu)
+
+plan(cluster, workers = workers)
+
+# plan(list(tweak(cluster, workers = workers), multicore))
+
+m <- listenv::listenv()
+tic("extract")
+m <- future::future_lapply(x, FUN = velox_lst, points_coord = points_coord)
+toc()
+
+m <- listenv::listenv()
+tic("extract")
+m <- future::future_lapply(x, FUN = velox_lst, points_coord = points_coord)
+toc()
+
+
+m <- listenv::listenv()
+tic("extract")
+m <- foreach::foreach(i = 1:length(x), .packages = 'tidyverse') %dopar% {
+  
+  velox_lst(x[[i]], points_coord = points_coord[1, ])
+  
+  
+  
+}
+toc()
 
 
 
