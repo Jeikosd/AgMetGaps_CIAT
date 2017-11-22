@@ -1,49 +1,23 @@
 
 ## main functions
+## first part
+# fp: folder to make
 
-## funcion para crear puntos como poligonos (formato que necesita el paquete velox para extraer puntos de raster)
+mkdirs <- function(fp) {
+  
+  if(!file.exists(fp)) {
+    mkdirs(dirname(fp))
+    dir.create(fp, showWarnings = F, mode = "777")
+    
+  }
+  
+  return(fp)
+} 
 
-# file_nc: sacks nc planting
-# out_path: folder to save the information
-# extent: extent if it is necessary to crop 
-# raster_source: source of the raster 
-# ...: to pass raster function
 
-raster_Polygons <- function(file_nc, out_path, extent, raster_source, ...){
-  
-  # file_nc <- paste0(path, planting)
-  # out_path 
-  # extent <- extent_information 
-  
-  crop_name <- stringr::str_extract(basename(file_nc), pattern = '[^.]+')
-  
-  calendar_points <- suppressWarnings(raster::raster(file_nc), ...)
-  # start_planting <- raster::raster(file_nc, varname = 'plant.start')
-  # end_planting <- raster::raster(file_nc, varname = 'plant.end')
-  
-  ### cropping with the climate information (chirps or agmerra) 
-  ### and make polygons for velox package
-  
-  points_df <- make_polygons(calendar_points, extent_information)
-  # setwd(out_path)
-  points_df <- sf::st_as_sf(points_df)
-  
-  # as(points_df, "Spatial")
-  
-  out_points <- mkdirs(fp = paste0(out_path, crop_name))
-  
-  st_write(points_df, dsn = out_points,
-           # layer = "rice_points_sacks.shp",
-           layer = paste0(crop_name, '_', raster_source, '.shp'),
-           driver = "ESRI Shapefile",
-           delete_layer = TRUE)
-           # delete_dsn = TRUE)
-}
 
-  
-
-## x:  a raster file
-## extent: extent to crop the raster file 
+## x: a raster object
+## extent: extent to crop the raster
 
 make_polygons <- function(x, extent){
   
@@ -76,20 +50,75 @@ make_polygons <- function(x, extent){
   
 }
 
-# fp: folder to make
 
-mkdirs <- function(fp) {
+
+## funcion para crear puntos como poligonos (formato que necesita el paquete velox para extraer puntos de raster)
+
+# file_nc: sacks nc planting (or a raster file)
+# extent: extent if it is necessary to crop 
+
+raster_Polygons <- function(file_nc, extent, ...){
   
-  if(!file.exists(fp)) {
-    mkdirs(dirname(fp))
-    dir.create(fp, showWarnings = F, mode = "777")
+  # file_nc <- file_nc[[1]]
+  # out_path
+  # extent <- extent_information
+  
+  # crop_name <- stringr::str_extract(basename(file_nc), pattern = '[^.]+')
+  
+  r <- raster::raster(file_nc, ...)
+  
+  # var_name <- names(r) %>%
+    # stringr::str_replace_all(pattern = '[:punct:]+', replacement  = '_')
+  
+  # start_planting <- raster::raster(file_nc, varname = 'plant.start')
+  # end_planting <- raster::raster(file_nc, varname = 'plant.end')
+  
+
+  points_df <- make_polygons(r, extent)
+  # setwd(out_path)
+  points_df <- sf::st_as_sf(points_df)
+  
+  return(points_df)
+  # as(points_df, "Spatial")
+
+}
+
+## x: a sf object
+## y: a sf object
+## vars: variables in y to bind cols in x
+
+bind_cols_sf <- function(x, y, vars){
+  
+  
+  y <- data.frame(y) %>%
+         dplyr::tbl_df() %>%
+         dplyr::select(!!vars)
+  
+  z <- dplyr::bind_cols(x, y)
+  
+  return(z)
+
+}
+  
+## sf: now a sf object
+
+write_shp <- function(sf, out_path, raster_source){
     
-  }
-  
-  return(fp)
-} 
+    out_points <- mkdirs(fp = out_path)
 
+    sf::st_write(sf, dsn = out_points,
+             # layer = "rice_points_sacks.shp",
+             layer = paste0(basename(out_path), '_', raster_source, '.shp'),
+             driver = "ESRI Shapefile",
+             delete_layer = TRUE)
+             # delete_dsn = TRUE)
   
+}
+
+
+
+#### sencod part
+
   
   
 extract_date <- function(filename){

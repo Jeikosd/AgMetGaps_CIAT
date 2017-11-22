@@ -11,17 +11,48 @@ library(sf)
 library(stringr)
 library(ncdf4)
 library(purrr)
-source("main_functions.R")
+# source("main_functions.R")
 
 path <- '/mnt/workspace_cluster_9/AgMetGaps/Inputs/05-Crop Calendar Sacks/'
-planting <- c('Rice.crop.calendar.nc', 'Maize.crop.calendar.nc', 'wheat.crop.calendar.nc')  ## wheat winter???
 out_path <- '/mnt/workspace_cluster_9/AgMetGaps/weather_analysis/spatial_points/'    ## folder del proyecto para pegar la informacion necesaria
-extent_information <- c(-180,  180,  -50,   50)  ## extent with where is the information (chirps!!!)
-raster_source <- 'sacks'
+
+planting <- c('Rice.crop.calendar.nc', 'Maize.crop.calendar.nc', 'wheat.crop.calendar.nc')  ## wheat winter???
+extent_information <- c(-180,  180,  -50,   50)  ## extent with where is the information (chirps!!! or AgMerra!!!)
+raster_source <- 'sowing_window_sacks'
+
 
 # raster_Polygons(file_nc = paste0(path, planting), out_path, extent = extent_information, raster_source)
 file_nc <- paste0(path, planting)
-purrr::map(.x = file_nc, .f = raster_Polygons, out_path, extent = extent_information, raster_source)
+
+plant_start <- file_nc %>%
+  purrr::map(.f = raster_Polygons, extent = extent_information, varname = 'plant.start')
+  # raster_Polygons(file_nc[[1]], extent_information, varname = 'plant.start')
+plant_end <- file_nc %>%
+  purrr::map(.f = raster_Polygons, extent = extent_information, varname = 'plant.end')
+  # raster_Polygons(file_nc[[1]], extent_information, varname = 'plant.end')
+vars <- plant_end %>%
+  purrr::map_chr(.f = function(x){
+    names(x)[3]
+    
+  })
+
+sowing_window <- purrr::pmap(.l = list(plant_start,
+                                plant_end ,
+                                vars),
+                           .f = bind_cols_sf)
+
+crop_name <- planting %>%
+  stringr::str_extract(pattern = '[^.]+')
+
+out_files <- paste0(out_path, crop_name)
+
+purrr::pmap(.l = list(sowing_window,
+                      out_files,
+                      raster_source), 
+            .f = write_shp)
+
+
+
 
 rm(list = ls())
 
