@@ -46,6 +46,7 @@ crop_name <- planting %>%
 
 out_files <- paste0(out_path, crop_name)
 
+## out shp
 purrr::pmap(.l = list(sowing_window,
                       out_files,
                       raster_source), 
@@ -68,8 +69,8 @@ library(velox)
 
 chirps_path <- '/mnt/data_cluster_4/observed/gridded_products/chirps/daily/'
 chirps_file <- list.files(chirps_path, pattern = '.tif$', full.names = T)
-
-
+points_path <- '/mnt/workspace_cluster_9/AgMetGaps/weather_analysis/spatial_points/Maize'
+points_file <- list.files(points_path, pattern = '.geojson$', full.names = T)
 
 raster_files <- chirps_file %>%
   data_frame(file = .) %>%
@@ -79,18 +80,22 @@ raster_files <- chirps_file %>%
          month = lubridate::month(date),
          day = lubridate::day(date))
 
-x <- raster_files %>%
-  filter(year <= 1982) 
-
-
 # x <- raster_files %>%
-#   filter(year <= 1982) %>%
-#   pull(file)
+#   filter(year <= 1982) 
 
-x <- x %>%
-  base::split(.$year, drop = TRUE) %>%
-  purrr::map(.f = filter, month == 1) %>%
-  purrr::map(.f = pull, file)
+
+x <- raster_files %>%
+  filter(year <= 1981, month == 1) %>%
+  pull(file)
+
+# x <- x %>%
+#   base::split(.$year, drop = TRUE) %>%
+#   purrr::map(.f = filter, month == 1) %>%
+#   purrr::map(.f = pull, file)
+
+
+p <- sf::st_read(dsn = points_file)
+
 
 ## cargar los puntos que se van a utilizar para extraer
 
@@ -101,14 +106,15 @@ external_cpu <- rep("climate.ciat.cgiar.org", each = 4)
 
 workers <- c(local_cpu, external_cpu)
 
-plan(cluster, workers = workers)
+plan(multicore, workers = local_cpu)
+# plan(cluster, workers = workers)
 
 # plan(list(tweak(cluster, workers = workers), multicore))
 
 m <- listenv::listenv()
-tic("extract")
+# tic("extract")
 m <- future::future_lapply(x, FUN = velox_lst, points_coord = points_coord)
-toc()
+# toc()
 
 m <- listenv::listenv()
 tic("extract")

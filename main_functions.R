@@ -1,6 +1,7 @@
-
 ## main functions
+
 ## first part
+
 # fp: folder to make
 
 mkdirs <- function(fp) {
@@ -41,7 +42,7 @@ make_polygons <- function(x, extent){
   polygons@data = data.frame(polygons@data, data.frame(points)) %>%
     dplyr::tbl_df() %>%
     dplyr::rename(!!variable :=  !!exchange) %>%
-    select(lat, long, !!variable)
+    dplyr::select(lat, long, !!variable)
   
   
   return(polygons)
@@ -104,14 +105,31 @@ bind_cols_sf <- function(x, y, vars){
 
 write_shp <- function(sf, out_path, raster_source){
     
+  
+  ## sf <- sowing_window[[1]]
+  ## out_path <- out_files[1]
+  
     out_points <- mkdirs(fp = out_path)
-
-    sf::st_write(sf, dsn = out_points,
+    
+    # sf::st_write(sf, dsn = paste0(out_points, '_', raster_source, '.GeoJSON'))
+    # sf::st_write(sf, paste0(out_points, '_', raster_source, '.csv'), layer_options = "GEOMETRY=AS_XY")
+    # sf::st_write(sf, paste0(out_points, '_', raster_source, '.csv'), layer_options = "GEOMETRY=AS_XY", delete_layer = TRUE)
+    # sf::st_write(sf, paste0(out_points, '_', raster_source, '.csv'), layer_options = "GEOMETRY=AS_WKT", delete_dsn = TRUE)
+    # 
+    # st_read("crime_wkt.csv", options = "GEOM_POSSIBLE_NAMES=WKT")
+    # st_read(dsn = paste0(out_points, '_', raster_source, '.GeoJSON'))
+    # sf::st_read(dsn = paste0(out_points, '/_', raster_source, '.csv'), options = "GEOM_POSSIBLE_NAMES=WKT")
+    # st_write(sf, dsn = paste0(out_points, '/_', raster_source, '.csv'), layer_options = "GEOMETRY=AS_WKT", delete_layer = TRUE, delete_dsn = TRUE) 
+    # st_write(sf, dsn = paste0(out_points, '/_', raster_source), "PG:dbname=postgis", "sids", layer_options = "OVERWRITE=true")
+    # 
+    
+    file <- paste0(basename(out_path), '_', raster_source, '.geojson')
+    sf::st_write(sf, dsn = paste(out_points, file, sep = '/'),
              # layer = "rice_points_sacks.shp",
-             layer = paste0(basename(out_path), '_', raster_source, '.shp'),
-             driver = "ESRI Shapefile",
-             delete_layer = TRUE)
-             # delete_dsn = TRUE)
+             # layer = paste0(basename(out_path), '_', raster_source, '.geojson'),
+             driver = "GeoJSON",
+             delete_layer = TRUE,
+             delete_dsn = TRUE)
   
 }
 
@@ -140,6 +158,48 @@ mean_point <- function(x){
   mean(x, na.rm = T)
   
 }
+
+
+
+
+
+
+extract_velox <- function(file, points){
+  
+  # file <-x[1]
+  # points <- points_coord
+  
+  vx_raster <- velox(file)
+  
+  
+  coords <- sp::coordinates(points) %>%
+    tbl_df()
+  # 
+  date_raster <- extract_date(file) %>%
+    rep(dim(coords)[1])
+  date_raster <- data_frame(date_raster)
+  # 
+  # # plan(multisession)
+  # # ff_path <- paste0(tempfile(pattern = 'chirps_values'), '.ffdata')
+  # #
+  values <- vx_raster$extract(points, fun = mean_point) %>%
+    tbl_df() %>%
+    # dplyr::rename(precip = V1) %>%
+    dplyr::bind_cols(coords, date_raster) 
+  # data.table
+  
+  
+  # return(values)
+  
+  
+  
+}
+
+
+
+
+
+
 
 
 velox_year <- function(data){
