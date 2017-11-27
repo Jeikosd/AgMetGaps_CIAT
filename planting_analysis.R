@@ -39,13 +39,15 @@ setwd('/mnt/workspace_cluster_9/AgMetGaps')
 
 # D:/AgMaps/planting_dates/calendar/
 
+
 pdate <- raster(paste0('Inputs/05-Crop Calendar Sacks/', 'Rice.crop.calendar.nc'), varname = 'plant') %>% 
-          crop(extent(-180, 180, -50, 50)) 
+  crop(extent(-180, 180, -50, 50)) 
+
 
 pdate_points <- rasterToPoints(pdate) %>%
   tbl_df() %>% 
   setNames(nm = c('x', 'y', 'julian.start')) %>%
-  mutate(month_start =  month.day.year(julian.start)$month)
+  mutate(Planting =  month.day.year(julian.start)$month)
 
 
 hdate <- raster(paste0('Inputs/05-Crop Calendar Sacks/', 'Rice.crop.calendar.nc'), varname = 'harvest') %>% 
@@ -54,31 +56,58 @@ hdate <- raster(paste0('Inputs/05-Crop Calendar Sacks/', 'Rice.crop.calendar.nc'
 hdate_points <- rasterToPoints(hdate) %>%
   tbl_df() %>% 
   setNames(nm = c('x', 'y', 'julian.h')) %>%
-  mutate(month_h =  month.day.year(julian.h)$month) 
+  mutate(harvest =  month.day.year(julian.h)$month) 
 
 
-date_points <- inner_join(pdate_points, hdate_points)
+
+# Compute floration trimester
+compute_flor <- function(.x, .y){
+  if(.x < .y){
+    flor <- round(.x + (.y - .x)/2 , 0)
+  } else if(.x > .y){
+    flor <- round(.x +  ( (12 - .x) + .y)/2 , 0)
+  }
+  
+  if(flor>12){flor <- flor - 12} else if( flor <= 12){flor <- flor}
+  
+  return(flor)}
 
 
-crop.time <- date_points %>% 
- select(month_start, month_h)  %>% 
-  count(month_start, month_h) %>% 
-  filter(n == max(n)) %>% 
-  # arreglar en el caso de segundo semestre
-  mutate(month.flor = if( month_h > month_start){
-    round( month_start + (month_h - month_start)/2, 0)
-  }else if( month_h < month_start){
-    round(month_start + ((12-month_start) +  month_h) / 2 , 0)
-  }) %>% 
-  mutate(month.flor = if(month.flor>12){month.flor -12} else if(month.flor<=12){month.flor}) %>%
-  select(month_start, month.flor, month_h) %>%
-  gather(season, month.2)  %>% # lo mismo que en el paso anterior 
-  mutate(month.1 = ifelse(month.2 == 1, 12, month.2 - 1) , month.3 = ifelse(month.2 == 12, 1, month.2 + 1)) %>%
-  gather(possition, month, -season) %>%
-  arrange(.,  season, possition)
 
 
-write.csv(x = crop.time, file = 'monthly_out/Rice_first.csv')
+month_below <- function(.x){
+  if(.x > 1) { below <- .x - 1} else if(.x  == 1){ below <- 12 }
+  return(below)}
+
+
+
+month_above <- function(.x){
+  if(.x < 12) { above <- .x + 1} else if(.x  == 12){ above <- 1 }
+  return(above)}
+
+
+
+
+
+crop.time <- inner_join(pdate_points, hdate_points) %>% 
+  select(-julian.start, -julian.h) %>% 
+  mutate(flor = map2(.x = Planting, .y = harvest, .f = compute_flor)) %>% 
+  unnest() %>% 
+  select(x, y, Planting, flor, harvest) %>% 
+  mutate(a.Planting1 = map(.x = Planting, .f = month_below), 
+         a.Planting3 = map(.x = Planting, .f = month_above), 
+         b.flor1 = map(.x = flor, .f = month_below), 
+         b.flor3 = map(.x = flor, .f = month_above),
+         c.harvest1= map(.x = harvest, .f = month_below), 
+         c.harvest3 = map(.x = harvest, .f = month_above)) %>% 
+  unnest  %>% 
+  rename(a.Planting2 = Planting, b.flor2 = flor, c.harvest2 = harvest) %>% 
+  select(x,y, a.Planting1, a.Planting2, a.Planting3, b.flor1, b.flor2, b.flor3, 
+         c.harvest1, c.harvest2, c.harvest3) %>% 
+  gather(key = phase.month, value = month, -x, -y)  %>% 
+  # group_by(x, y)  %>% 
+  separate(phase.month, c("phase", "type"), sep = "\\.") 
+
 
 
 
@@ -166,7 +195,7 @@ system.time(
     data_frame(date = .) %>%
     mutate(year = year(date), month = month(date)) %>%
     mutate(band = 1:n_bands, file = rep(paste0('Chips_Monthly/', 'chirps-v2.0.monthly.nc'), n_bands)) %>%
-    filter(month %in% crop.time$month)   %>%  #  filter(row_number() < 2) %>% 
+    # filter(month %in% crop.time$month)   %>%  #  filter(row_number() < 2) %>% 
     mutate(load_raster = map2(.x = file, .y = band, .f = ~future(raster_mod(.x,.y)))) %>%
     mutate(load_raster = map(.x = load_raster, .f = ~value(.x))) %>% 
     mutate(raster_df = map(.x = load_raster, .f = ~future(velox(.x)))) %>%
@@ -373,16 +402,30 @@ cropV.temp <-  time.levels %>%
 ##################################################################
 
 
-# D:/AgMaps/Yield_Gaps_ClimateBins/rice_yieldgap_netcdf
-
 Yield.G <- list.files(path = 'Inputs/Yield_Gaps_ClimateBins/rice_yieldgap_netcdf/', 
                       pattern = 'YieldGap.nc', full.names = TRUE) %>%
-  as.tibble() %>% 
-  mutate(load_raster = raster(value) %>% crop(extent(-180, 180, -50, 50))) 
-   
+  as.tibble %>% 
+  mutate(load_raster = map(.x = value, .f = function(.x){ 
+    raster(.x) %>%  crop(extent(-180, 180, -50, 50))})) %>%
+  mutate(raster_df =  map(.x = load_raster, .f = velox::velox) ) 
+
+# mutate(points = map(.x = raster_df, .f = ~future(extract_velox_temp(velox_Object = .x, points = sp_pdate))))
+
+coords <- coordinates(sp_pdate) %>%
+  tbl_df() %>%
+  rename(lat = V1, long = V2)
+
+test <- Yield.G$raster_df[[1]]$extract(sp_pdate, fun = function(x){ 
+  mean(x, na.rm = T)}) %>%
+  tbl_df() %>%
+  rename(gap = V1) %>%
+  bind_cols(coords) %>%
+  dplyr::select(lat, long, gap)
 
 
-Yield.G
+test[which(test$gap[] == 'NaN'), 3] <- NA
+
+
 
 
 
@@ -398,26 +441,42 @@ Yield.G
 ##################################################################
 ##################################################################
 
+# temporal 
 
 
-inner_join(cropV.temp , cropV.prec) %>% 
-  select(-cv.t, -cv.p)  %>%
-  select(-lat, -long)  %>%
-  group_by(value) %>%
-  do(slice(., 10))
-
-  
-
-library(broom)
-
-  
-   filter(value == 'month_start') %>%
-  select(data) %>%
-  unnest  %>%
-  correlate()
-
-  
-  #mutate(cor =  map(.x = data, function(.x){cor(. , use = 'na.or.complete')}))
-  
+grap_variability <-  inner_join(cropV.temp , cropV.prec)  %>% 
+  mutate(value1 =  value)  %>%
+  separate(value1, c('month', 'other'), '_')  %>%
+  select(-month) %>%
+  nest(-other) %>% 
+  select(data) %>% 
+  unlist(recursive = F)  %>% 
+  map(.x = . , .f = function(.x){
+    name <- .x$value[1]     
+    t <- .x %>% 
+      set_names(., paste0(name, '.', names(.x))) %>%
+      select(-1) 
+    return(t)}) %>% 
+  bind_cols() %>% 
+  rename(., lat =  month_flor.lat , long = month_flor.long) %>% 
+  select(-month_h.long, -month_h.lat,-month_start.lat ,-month_start.long) %>%
+  left_join(test, .)  
 
 
+
+
+
+
+
+# knitr
+
+
+
+# correlation 
+
+grap_variability %>% 
+  select(-lat, -long) %>% 
+  na.omit   %>%  # temporal
+  cor %>% 
+  abs %>% 
+  write.csv(., file = 'test.csv')
