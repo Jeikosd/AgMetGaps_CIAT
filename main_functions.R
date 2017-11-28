@@ -32,7 +32,7 @@ make_polygons <- function(x, extent){
     rasterToPoints() %>%
     dplyr::tbl_df() %>%
     dplyr::select(x, y) %>%
-    dplyr::rename(lat = x, long = y)
+    dplyr::rename(lat = y, long = x)
   
   polygons <- x %>%
     raster::crop(extent) %>%
@@ -160,45 +160,72 @@ mean_point <- function(x){
 }
 
 
-
-
-
-
 extract_velox <- function(file, points){
   
-  # file <-x[1]
-  # points <- points_coord
+  # file <-x[2]
+  # points <- geo_files
   
-  vx_raster <- velox(file)
+  vx_raster <- velox::velox(file)
   
   
   coords <- sp::coordinates(points) %>%
-    tbl_df()
+    tbl_df() %>%
+    dplyr::rename(lat = V1, 
+                  long = V2)
   # 
   date_raster <- extract_date(file) %>%
     rep(dim(coords)[1])
   date_raster <- data_frame(date_raster)
   # 
   # # plan(multisession)
-  # # ff_path <- paste0(tempfile(pattern = 'chirps_values'), '.ffdata')
+  # ff_path <- paste0('/mnt/workspace_cluster_9/AgMetGaps/weather_analysis/precipitation_points/', 'points.ffdata')
   # #
   values <- vx_raster$extract(points, fun = mean_point) %>%
     tbl_df() %>%
-    # dplyr::rename(precip = V1) %>%
+    dplyr::rename(precip = V1) %>%
     dplyr::bind_cols(coords, date_raster) 
   # data.table
   
+  # prueba <- list(values, values2)
+  # prueba[[1]]
+  # prueba <- ff(vmode = "double", dim = dim(values), filename = ff_path)
+  # prueba <- as.ffdf(prueba[[1]], filename = ff_path)
+  # purrr::map(.x = prueba[[1]], .y = prueba[[2]], .f = bind_rows)
+  # as.ffdf.data.frame(values, filename = ff_path)
   
+  # bind_rows(prueba)
   # return(values)
   
+  # bind_rows_raster <- function(x, y){
+    # x %>%
+      # filter(row_number()==y)
+  # }
   
+  # purrr::map(.x = list(values, values2), .f = bind_rows_raster, y = 1) %>%
+    # bind_rows
+  return(values)
+}
+
+## Make weather station for each latitude and longitude
+## x: la lista extraida de chirps para cada dia
+## para seleccionar el pixel para posteriormente organizar la serie climatica
+
+select_pixel <- function(x, pixel){
+  
+  x[pixel, ]
   
 }
 
+## Making weather station for each latitude and longitude
+
+make_Wstation <- function(x, pixel){
+  
+  x <- purrr::map(.x = x, .f = select_pixel, pixel) %>%
+    dplyr::bind_rows()
+}
 
 
-
-
+export_weather
 
 
 

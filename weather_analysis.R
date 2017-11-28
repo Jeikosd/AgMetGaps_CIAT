@@ -66,11 +66,16 @@ library(tidyverse)
 library(raster)
 library(future)
 library(velox)
+library(sf)
+library(tictoc)
 
 chirps_path <- '/mnt/data_cluster_4/observed/gridded_products/chirps/daily/'
 chirps_file <- list.files(chirps_path, pattern = '.tif$', full.names = T)
 points_path <- '/mnt/workspace_cluster_9/AgMetGaps/weather_analysis/spatial_points/Maize'
 points_file <- list.files(points_path, pattern = '.geojson$', full.names = T)
+
+geo_files <- sf::st_read(dsn = points_file) %>%
+  as('Spatial')
 
 raster_files <- chirps_file %>%
   data_frame(file = .) %>%
@@ -86,6 +91,7 @@ raster_files <- chirps_file %>%
 
 x <- raster_files %>%
   filter(year <= 1981, month == 1) %>%
+  # filter(year <= 2016) %>%
   pull(file)
 
 # x <- x %>%
@@ -94,22 +100,31 @@ x <- raster_files %>%
 #   purrr::map(.f = pull, file)
 
 
-p <- sf::st_read(dsn = points_file)
+# p <- sf::st_read(dsn = points_file)
 
 
 ## cargar los puntos que se van a utilizar para extraer
 
 
-local_cpu <- rep("localhost", availableCores() - 3)
+local_cpu <- rep("localhost", availableCores() - 2)
 # external_cpu <- rep("caribe.ciat.cgiar.org", 8)  # server donde trabaja Alejandra
-external_cpu <- rep("climate.ciat.cgiar.org", each = 4)
+external_cpu <- rep("climate.ciat.cgiar.org", each = 10)
 
 workers <- c(local_cpu, external_cpu)
 
-plan(multicore, workers = local_cpu)
-# plan(cluster, workers = workers)
+# plan(multisession, workers = 10)
+plan(cluster, workers = workers)
 
 # plan(list(tweak(cluster, workers = workers), multicore))
+
+m <- listenv::listenv()
+tic("extract")
+m <- future::future_lapply(x, FUN = extract_velox, points = geo_files) 
+toc()
+
+
+make_Wstation(m, 1)
+
 
 m <- listenv::listenv()
 # tic("extract")
