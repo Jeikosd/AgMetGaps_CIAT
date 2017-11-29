@@ -1,4 +1,78 @@
 # gc(reset = T); rm(list = ls()); options(warn = -1); options(scipen = 999)
+##### Understand the jeison's scrip
+
+
+
+point_dates <-  dates_raster %>% 
+  select( year, month, points) %>% 
+  unnest %>% 
+  group_by(lat, long) %>%
+  nest() %>%
+  mutate(id = 1:nrow(.))
+
+
+
+out <- '/mnt/workspace_cluster_9/AgMetGaps/monthly_out/rice/'
+name <- 'rice_precip'
+
+
+# information for planting 
+planting <- crop.time %>% 
+  filter(phase == 'a') %>% 
+  rename(lat = x,  long =  y) %>%
+  group_by(type) %>%
+  mutate(id = 1:length(type)) %>%
+  ungroup()
+
+
+### This function extract for each pixel the chirps information 
+### i represents the exactly pixel 
+
+make_station <- function(x, i){
+  
+  file_name <- paste0( out, name )
+  
+  weather_station <- x[i, ] %>%
+    unnest() 
+  
+  coord <- weather_station %>%
+    dplyr::select(lat, long) %>%
+    distinct()
+  
+  lat <- dplyr::pull(coord, 'lat')
+  long <- dplyr::pull(coord, 'long')
+  
+  return(weather_station)
+  write_csv(weather_station, path = paste0(paste(file_name, lat, long, sep = '_'), '.csv'))
+}
+
+
+point_extract <- function(x, y){
+  inner_join(y, x, by = c('id', 'month')) %>%
+    select(-lat.y, -long.y) %>%
+    group_by(year, lat.x, long.x) %>%
+    rename(lat = lat.x, long = long.x, precip =  values) %>% 
+    summarise(prec_clim = sum(precip)) %>%
+    ungroup()
+}
+
+x <- make_station(point_dates, 1, file_name = paste0( out, name )) 
+b <- point_extract(x = x, y = planting)
+
+
+
+make_station(point_dates, 1, file_name = paste0( out, name )) 
+
+
+point_dates %>% 
+  mutate(i = 1:dim(.)[1]) %>%
+  .[1:5,]  %>%
+  mutate(stations = map2(.x = data, .y = i, .f = make_station(.x, .y)))
+
+
+
+
+
 
 ##################################################################
 ##########                    Packages                  ########## 
@@ -7,13 +81,10 @@
 
 library(raster)
 library(ncdf4)
-library(dplyr)
-library(ggplot2)
 library(velox)
 library(foreach)
-library(future)
+library(future) # parallel package
 library(doFuture)
-library(purrr)
 library(magrittr)
 library(lubridate)
 library(tidyr)
@@ -22,7 +93,6 @@ library(stringr)
 library(tidyverse)
 library(chron)
 
-library(future)  # parallel package
 
 # tibbletime
 
@@ -213,6 +283,17 @@ system.time(
   mutate(points = map(.x = raster_df, .f = ~future(extract_velox(velox_Object = .x, points = sp_pdate)))) %>%
   mutate(points = map(points, ~value(.x))) 
 )
+
+
+
+
+
+
+dates_raster
+
+
+
+
 
 
 
