@@ -242,6 +242,8 @@ planting <- crop.time %>%
 
 
 
+
+
 ### This function extract for each pixel the chirps information 
 ### i represents the exactly pixel 
 
@@ -293,11 +295,10 @@ extract_months <- function( dates, atelier, out1, name){
   test <-point_dates %>% 
     mutate(i = 1:nrow(.)) %>%
     nest(-i) %>% 
-    .[1:100, ]%>%
     mutate(stations = map(.x =  data , .f =  make_station, out = out, name =  name)) %>% 
     mutate(each_Pclim =  purrr::map(.x =  stations, .f = point_extract, y = atelier))
   
-  return(test) }
+  return(test) } # in case necesary filter for 100 pixels 
 
 
 
@@ -324,20 +325,107 @@ atelier <- planting
 
 
 
-test <-  extract_months(dates = point_dates, atelier = planting, out = out1, name = name)
+system.time(
+  test <-   extract_months(dates = point_dates, atelier = planting, out = out1, name = name)
+)
+
+climatology <- function(test){
+  
+  # creation to the climatology
+  prec_chirps <- test %>% 
+    select( i, each_Pclim) %>% 
+    unnest %>% 
+    group_by(i, lat,  long, phase) %>%
+    summarise(climatology_prec = mean(prec_clim), sd.prec = sd(prec_clim)) %>%
+    mutate(cv.prec = (sd.prec/climatology_prec) * 100) %>% 
+    ungroup
+  
+  return(prec_chirps)}
+
+
+
+
+x <- test %>% 
+  climatology %>%
+  rename(long =  lat, lat = long)
+
+
+
+Chirps_raster <- raster(paste0('Chips_Monthly/', 'chirps-v2.0.monthly.nc')) 
+Chirps_raster %>%  plot
+
+var <- 'climatology_prec'
+
+rasterize_mod <- function(x, raster, var){
+  # x <- proof
+  # r <- rain.all$mean[[1]]
+  # var <- 'DJF.1'
+  
+  points <- x %>%
+    select(long, lat) %>%
+    data.frame 
+  
+  vals <- x %>%
+    select(!!var) %>%
+    magrittr::extract2(1)
+  
+  
+  y <- rasterize(points, pdate, vals)
+  
+  plot(y)
+  
+  
+  base_world <- map_data("world")
+  
+  
+  myPalette <-  colorRampPalette(c("navyblue","#2166AC", "dodgerblue3","lightblue", "lightcyan",  "white",  "yellow","orange", "orangered","#B2182B", "red4"))
+  
+  ewbrks <- c(seq(-180,0,45), seq(0, 180, 45))
+  nsbrks <- seq(-50,50,25)
+  ewlbls <- unlist(lapply(ewbrks, function(x) ifelse(x < 0, paste(abs(x), "°W"), ifelse(x > 0, paste( abs(x), "°E"),x))))
+  nslbls <- unlist(lapply(nsbrks, function(x) ifelse(x < 0, paste(abs(x), "°S"), ifelse(x > 0, paste(abs(x), "°N"),x))))
+  
+  
+  
+  
+  
+  
+  
+  
+  mapWorld <- borders("world", colour="black", y = c(-30, 40))
+  Blues<-colorRampPalette(c('#fff7fb','#ece7f2','#d0d1e6','#a6bddb','#74a9cf','#3690c0','#0570b0','#045a8d','#023858','#233159'))
+  
+  rasterVis::gplot(y) + 
+    geom_tile(aes(fill = value)) +  mapWorld  +
+    coord_equal() +
+    labs(x="Longitude",y="Latitude", fill = " ")   +
+    scale_fill_gradientn(colours =Blues(100), na.value="white") +
+    scale_x_continuous(breaks = ewbrks, labels = ewlbls, expand = c(0, 0)) +
+    scale_y_continuous(breaks = nsbrks, labels = nslbls, expand = c(0, 0)) +
+    theme_bw() + theme(panel.background=element_rect(fill="white",colour="black"))  
+  
+  ggsave('/mnt/workspace_cluster_9/AgMetGaps/monthly_out/test.png', width = 10, height = 4)
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  return(y)}
+
+plot(rasterize_mod(proof, Chirps_raster, 'climatology_prec'))
 
 
 
 
 
-# creation to the climatology
-test %>% 
-  select( i, each_Pclim) %>% 
-  unnest %>% 
-  group_by(i, lat,  long, phase) %>%
-  summarise(climatology_prec = mean(prec_clim), sd.prec = sd(prec_clim)) %>%
-  mutate(cv.prec = (sd.prec/climatology_prec) * 100) %>% 
-  ungroup
+
+
 
 
 
