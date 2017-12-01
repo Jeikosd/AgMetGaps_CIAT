@@ -1,79 +1,3 @@
-# gc(reset = T); rm(list = ls()); options(warn = -1); options(scipen = 999)
-##### Understand the jeison's scrip
-
-
-
-point_dates <-  dates_raster %>% 
-  select( year, month, points) %>% 
-  unnest %>% 
-  group_by(lat, long) %>%
-  nest() %>%
-  mutate(id = 1:nrow(.))
-
-
-
-out <- '/mnt/workspace_cluster_9/AgMetGaps/monthly_out/rice/'
-name <- 'rice_precip'
-
-
-# information for planting 
-planting <- crop.time %>% 
-  filter(phase == 'a') %>% 
-  rename(lat = x,  long =  y) %>%
-  group_by(type) %>%
-  mutate(id = 1:length(type)) %>%
-  ungroup()
-
-
-### This function extract for each pixel the chirps information 
-### i represents the exactly pixel 
-
-make_station <- function(x, i){
-  
-  file_name <- paste0( out, name )
-  
-  weather_station <- x[i, ] %>%
-    unnest() 
-  
-  coord <- weather_station %>%
-    dplyr::select(lat, long) %>%
-    distinct()
-  
-  lat <- dplyr::pull(coord, 'lat')
-  long <- dplyr::pull(coord, 'long')
-  
-  return(weather_station)
-  write_csv(weather_station, path = paste0(paste(file_name, lat, long, sep = '_'), '.csv'))
-}
-
-
-point_extract <- function(x, y){
-  inner_join(y, x, by = c('id', 'month')) %>%
-    select(-lat.y, -long.y) %>%
-    group_by(year, lat.x, long.x) %>%
-    rename(lat = lat.x, long = long.x, precip =  values) %>% 
-    summarise(prec_clim = sum(precip)) %>%
-    ungroup()
-}
-
-x <- make_station(point_dates, 1, file_name = paste0( out, name )) 
-b <- point_extract(x = x, y = planting)
-
-
-
-make_station(point_dates, 1, file_name = paste0( out, name )) 
-
-
-point_dates %>% 
-  mutate(i = 1:dim(.)[1]) %>%
-  .[1:5,]  %>%
-  mutate(stations = map2(.x = data, .y = i, .f = make_station(.x, .y)))
-
-
-
-
-
-
 ##################################################################
 ##########                    Packages                  ########## 
 ##################################################################
@@ -254,18 +178,15 @@ n_bands <- n_bands - 8 # temporal
 
 ## read monthly precipitation rasters with furure functions 
 plan(multisession, workers = availableCores() - 3)
-# plan(multiprocess)
-# future:::ClusterRegistry("stop")
-  
+
 system.time(  
   ## read monthly precipitation rasters 
-  dates_raster <- str_extract(nc_open(paste0('Chips_Monthly/', 'chirps-v2.0.monthly.nc'))$dim$time$units, "\\d{4}-\\d{1}-\\d{1}") %>%
+  dates_raster <- "1981-1-1"  %>% # str_extract(nc_open(paste0('Chips_Monthly/', 'chirps-v2.0.monthly.nc'))$dim$time$units, "\\d{4}-\\d{1}-\\d{1}")
     as.Date() %>%
     seq(by = "month", length.out = n_bands) %>%
     data_frame(date = .) %>%
     mutate(year = year(date), month = month(date)) %>%
     mutate(band = 1:n_bands, file = rep(paste0('Chips_Monthly/', 'chirps-v2.0.monthly.nc'), n_bands)) %>%
-    # filter(month %in% crop.time$month)   %>%  #  filter(row_number() < 2) %>% 
     mutate(load_raster = map2(.x = file, .y = band, .f = ~future(raster_mod(.x,.y)))) %>%
     mutate(load_raster = map(.x = load_raster, .f = ~value(.x))) %>% 
     mutate(raster_df = map(.x = load_raster, .f = ~future(velox(.x)))) %>%
@@ -289,7 +210,134 @@ system.time(
 
 
 
-dates_raster
+##### Understand the extract information for each pixel 
+
+# This part extact only the information for year, 
+# month and important points
+
+
+##### Understand the jeison's scrip
+
+
+
+point_dates <-  dates_raster %>% 
+  select( year, month, points) %>% 
+  unnest %>% 
+  group_by(lat, long) %>%
+  nest() %>%
+  mutate(id = 1:nrow(.))
+
+
+
+# information for planting 
+planting <- crop.time %>% 
+  filter(phase == 'a') %>% 
+  rename(lat = x,  long =  y) %>%
+  group_by(type) %>%
+  mutate(id = 1:length(type)) %>%
+  ungroup()
+
+
+
+
+
+
+### This function extract for each pixel the chirps information 
+### i represents the exactly pixel 
+
+make_station <- function(x, out, name){
+  
+  file_name <- paste0( out, name )
+  
+  weather_station <- x %>% 
+    bind_rows() %>%
+    unnest()
+  
+  coord <- weather_station %>%
+    dplyr::select(lat, long) %>%
+    distinct()
+  
+  lat <- dplyr::pull(coord, 'lat')
+  long <- dplyr::pull(coord, 'long')
+  
+  
+  write_csv(weather_station, path = paste0(paste(file_name, lat, long, sep = '_'), '.csv'))
+  return(weather_station)}
+
+point_extract <- function(x, y){
+  
+  proof <-  x  %>%
+    inner_join(y , ., by = c('id', 'month')) %>%
+    select(-lat.y, -long.y) %>%
+    group_by(phase, year, lat.x, long.x) %>%
+    rename(lat = lat.x, long = long.x, precip =  values) %>% 
+    summarise(prec_clim = sum(precip)) %>%
+    ungroup()
+  
+  return(proof)}
+
+extract_months <- function( dates, atelier, out1, name){
+  
+  folder <- atelier %>% 
+    select(phase) %>% 
+    filter(row_number() == 1) %>% 
+    as.character
+  
+  
+  out <- paste0(out1, folder, '/')
+  if(dir.exists(out) ==  'FALSE'){dir.create(paste0(out1, folder, '/'))}else if(dir.exists(out) ==  'TRUE'){print('TRUE')}
+  
+  
+  
+  ### Is necessary parallelize the process?
+  test <-point_dates %>% 
+    mutate(i = 1:nrow(.)) %>%
+    nest(-i) %>% 
+    .[1:100, ]%>%
+    mutate(stations = map(.x =  data , .f =  make_station, out = out, name =  name)) %>% 
+    mutate(each_Pclim =  purrr::map(.x =  stations, .f = point_extract, y = atelier))
+  
+  return(test) }
+
+
+
+
+calendar <- crop.time 
+
+
+out1 <- '/mnt/workspace_cluster_9/AgMetGaps/monthly_out/rice/precip/'
+name <- 'rice_precip'
+
+
+planting <- crop.time %>% 
+  filter(phase == 'a') %>% 
+  rename(lat = x,  long =  y) %>%
+  group_by(type) %>%
+  mutate(id = 1:length(type)) %>%
+  ungroup()
+
+
+
+
+
+atelier <- planting
+
+
+
+test <-  extract_months(dates = point_dates, atelier = planting, out = out1, name = name)
+
+
+
+
+
+# creation to the climatology
+test %>% 
+  select( i, each_Pclim) %>% 
+  unnest %>% 
+  group_by(i, lat,  long, phase) %>%
+  summarise(climatology_prec = mean(prec_clim), sd.prec = sd(prec_clim)) %>%
+  mutate(cv.prec = (sd.prec/climatology_prec) * 100) %>% 
+  ungroup
 
 
 
@@ -300,51 +348,7 @@ dates_raster
 
 
 
-#### Create Object to climate variability object. 
 
-
-time.levels <- crop.time %>% 
-  .$season %>%
-  factor %>% 
-  levels %>% 
-  as.tibble()
-
-
-
-
-# climatology function to calculate the precipitation variability in the crop season (mean, sd and cv)
-
-climatology <-  function(levels){
-
-  data  <-  dates_raster %>%
-    mutate(., time = ifelse( 
-      month %in% crop.time$month[crop.time$season == as.character(levels)], 'TRUE' , 'FALSE')) %>%
-    filter(time == TRUE)   %>% 
-    select(year, month, points) %>% 
-    unnest  %>% 
-    group_by(year, lat, long )  %>% 
-    summarise(add =  sum(values))  %>%
-    ungroup %>% 
-    group_by(lat, long)  %>%
-    summarise(climatology =  mean(add), sd.p =  sd(add))  %>%
-    mutate(cv.p = sd.p /climatology * 100) 
-
-    # nest(-year)
-return(data)}
-
-
-cropV.prec <-  time.levels %>% 
-  mutate(data =  map(.x = value, .f = climatology)) %>% 
-  unnest
-
-
-
-
-cropV.prec %>% 
-  select(-lat, -long) %>% 
-  group_by(value) %>% 
-  summarise_all(funs(min, mean, max, sd)) %>%  
-  View
 
 
 
@@ -362,25 +366,6 @@ cropV.prec %>%
 
 # temporaly 
 # read a one raster to GHCN_CAMS
-
-# 9.99900026E20 missing in temperature
-
-# temp <- 
-
-  #raster('D:/AgMaps/GHCN_CAMS/data.nc') %>% # read the raster
-  #rotate  %>% # rotate the raster 
-  #crop(extent(-180, 180, -50, 50)) %>%  # crop the raster ... not necesary for the project
-  # plot() 
-  #velox::velox() %>% 
-  #.$
-
-  
-  
-  # temp <- raster('D:/AgMaps/GHCN_CAMS/data.nc', band = 4)  %>% # read the raster 
-  # rotate  %>% # rotate the raster 
-  # crop(extent(-180, 180, -50, 50)) %>% 
-  # .[] - 273.15 
-  # temp %>% summary
 
 
   raster_mod_temp <- function(.x, .y){
@@ -408,13 +393,8 @@ cropV.prec %>%
 # 'D:/AgMaps/GHCN_CAMS/'
 ## asignar la banda a que Año y mes pertenecen
 n_bands <- nc_open(paste0('Inputs/GHCN_CAMS/', 'data.nc'))$dim$T$len
-n_bands <- 36*12 # temporal
+n_bands <- 36*12 # temporal 1981 to 2016
   
-
-# this data is available from this date, but we download to 1980 the same start-date to chirps 
-# nc_open(paste0('Inputs/GHCN_CAMS/', 'data.nc'))$dim$T$units 
-# for this we used the Chirps dates 
-
 
 # with future functions 
 # plan(multisession, workers = availableCores() - 3)
@@ -428,7 +408,6 @@ GHCN_CAMS <-   str_extract(nc_open(paste0('Chips_Monthly/', 'chirps-v2.0.monthly
   data_frame(date = .) %>%
   mutate(year = year(date), month = month(date)) %>%
   mutate(band = 1:n_bands, file = rep(paste0('Inputs/GHCN_CAMS/', 'data.nc'), n_bands)) %>%
-  filter(month %in% crop.time$month)   %>%
   mutate(load_raster = map2(.x = file, .y = band, .f = ~future(raster_mod_temp(.x,.y)))) %>%
   mutate(load_raster = map(.x = load_raster, .f = ~value(.x))) %>% 
   mutate(raster_df = map(.x = load_raster, .f = ~future(velox(.x)))) %>%
@@ -437,36 +416,6 @@ GHCN_CAMS <-   str_extract(nc_open(paste0('Chips_Monthly/', 'chirps-v2.0.monthly
   mutate(points = map(points, ~value(.x))) 
 )
 
-
-
-
-
-### with the object time.levels building the climatology function to temperature
-
-climatology_temp <-  function(levels){
-  
-  data  <-  GHCN_CAMS %>%
-    mutate(., time = ifelse( 
-    month %in% crop.time$month[crop.time$season == as.character(levels)], 'TRUE' , 'FALSE')) %>%
-    filter(time == TRUE)   %>% 
-    select(year, month, points) %>% 
-    unnest  %>% 
-    mutate(valuesC =  values - 273.15) %>% 
-    group_by(year, lat, long )  %>% 
-    # convert Kelvin degrees to Centigrades
-    summarise(add =  mean(valuesC))  %>%
-    ungroup %>% 
-    group_by(lat, long)  %>%
-    summarise(mean.t =  mean(add), sd.t =  sd(add))  %>%
-    mutate(cv.t = sd.t /mean.t * 100) 
-  
-  # nest(-year)
-  return(data)}
-
-
-cropV.temp <-  time.levels %>% 
-  mutate(data =  map(.x = value, .f = climatology_temp)) %>% 
-  unnest
 
 
 
