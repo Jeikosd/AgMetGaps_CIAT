@@ -73,6 +73,8 @@ chirps_path <- '/mnt/data_cluster_4/observed/gridded_products/chirps/daily/'
 chirps_file <- list.files(chirps_path, pattern = '.tif$', full.names = T)
 points_path <- '/mnt/workspace_cluster_9/AgMetGaps/weather_analysis/spatial_points/Maize'
 points_file <- list.files(points_path, pattern = '.geojson$', full.names = T)
+out_file <- '/mnt/workspace_cluster_9/AgMetGaps/weather_analysis/precipitation_points/daily_chirps_csv/'
+
 
 geo_files <- sf::st_read(dsn = points_file) %>%
   as('Spatial')
@@ -90,8 +92,8 @@ raster_files <- chirps_file %>%
 
 
 x <- raster_files %>%
-  filter(year <= 1981, month == 1) %>%
-  # filter(year <= 2016) %>%
+  # filter(year <= 1981, month == 1) %>%
+  filter(year <= 2016) %>%
   pull(file)
 
 # x <- x %>%
@@ -106,7 +108,7 @@ x <- raster_files %>%
 ## cargar los puntos que se van a utilizar para extraer
 
 
-local_cpu <- rep("localhost", availableCores() - 2)
+local_cpu <- rep("localhost", availableCores() - 1)
 # external_cpu <- rep("caribe.ciat.cgiar.org", 8)  # server donde trabaja Alejandra
 external_cpu <- rep("climate.ciat.cgiar.org", each = 10)
 
@@ -116,19 +118,64 @@ workers <- c(local_cpu, external_cpu)
 plan(cluster, workers = workers)
 
 # plan(list(tweak(cluster, workers = workers), multicore))
-
-m <- listenv::listenv()
-tic("extract")
-m <- future::future_lapply(x, FUN = extract_velox, points = geo_files) 
+options(future.globals.maxSize= 891289600)
+extract_chirps <- listenv::listenv()
+tic("extract the chirps information")
+extract_chirps <- future::future_lapply(x, FUN = extract_velox, points = geo_files, out_file) 
 toc()
 
 
-make_Wstation(m, 1)
+# strategy <- "future::multisession"
+
+
+#####
+##### Code to make weather stations
+
+# plan(strategy, workers = 10)  ## es necesario cambiar el plan?
+## mejor ir exportando el anterior objeto???
+## ir cargando luego fila a fila el anterior csv para evitar tanto consumo en RAM
+options(future.globals.maxSize= 10912896000)
+
+
+
+path <- '/mnt/workspace_cluster_9/AgMetGaps/weather_analysis/precipitation_points/daily_chirps_csv/'
+csv_files <- list.files(path = path, full.names = TRUE)
+out_path <- '/mnt/workspace_cluster_9/AgMetGaps/weather_analysis/precipitation_points/weather_stations/'
+
+## make each lat and long like weather station
+local_cpu <- rep("localhost", availableCores() - 1)
+# external_cpu <- rep("caribe.ciat.cgiar.org", 8)  # server donde trabaja Alejandra
+external_cpu <- rep("climate.ciat.cgiar.org", each = 5)
+
+workers <- c(local_cpu, external_cpu)
+
+# plan(multisession, workers = 10)
+plan(cluster, workers = workers)
+
+future::future_lapply(x, FUN = export_weather, )
+
+v <- listenv()
+for (i in 1:1000) { v[[i]] %<-% {
+  
+ 
+    mean(rnorm(100))
+  }
+  
+  
+}
+
+
+for (i in 1:1000) {
+  
+  
+  v[i] <- mean(rnorm(100))
+}
+
 
 
 m <- listenv::listenv()
 # tic("extract")
-m <- future::future_lapply(x, FUN = velox_lst, points_coord = points_coord)
+m <- future::future_lapply(x, FUN = velox_lst, points_coord = points_coord, out_file)
 # toc()
 
 m <- listenv::listenv()

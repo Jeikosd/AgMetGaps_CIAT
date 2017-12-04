@@ -160,7 +160,7 @@ mean_point <- function(x){
 }
 
 
-extract_velox <- function(file, points){
+extract_velox <- function(file, points, out_file){
   
   # file <-x[2]
   # points <- geo_files
@@ -176,6 +176,10 @@ extract_velox <- function(file, points){
   date_raster <- extract_date(file) %>%
     rep(dim(coords)[1])
   date_raster <- data_frame(date_raster)
+  
+  daily_day <- distinct(date_raster, date_raster) %>% 
+    pull()
+
   # 
   # # plan(multisession)
   # ff_path <- paste0('/mnt/workspace_cluster_9/AgMetGaps/weather_analysis/precipitation_points/', 'points.ffdata')
@@ -184,6 +188,8 @@ extract_velox <- function(file, points){
     tbl_df() %>%
     dplyr::rename(precip = V1) %>%
     dplyr::bind_cols(coords, date_raster) 
+  
+  write_csv(values, path = paste0(out_file, daily_day, '.csv'))
   # data.table
   
   # prueba <- list(values, values2)
@@ -210,22 +216,152 @@ extract_velox <- function(file, points){
 ## x: la lista extraida de chirps para cada dia
 ## para seleccionar el pixel para posteriormente organizar la serie climatica
 
-select_pixel <- function(x, pixel){
-  
-  x[pixel, ]
-  
-}
+# select_pixel <- function(x, pixel){
+#   
+#   x[pixel, ]
+#   
+# }
 
 ## Making weather station for each latitude and longitude
 
-make_Wstation <- function(x, pixel){
+# make_Wstation <- function(x, pixel){
+#   
+#   x <- purrr::map(.x = x, .f = select_pixel, pixel) %>%
+#     dplyr::bind_rows()
+# }
+
+##### esto es posible de paralelizar utilizando el paquete future
+
+read_daily <- function(x, skip, col_names){
   
-  x <- purrr::map(.x = x, .f = select_pixel, pixel) %>%
-    dplyr::bind_rows()
+readr::read_csv(file = x, skip = skip, n_max = 1, col_names = col_names, col_types = cols())
+    
+  # data.table::fread(file = x, skip = skip, nrows = 1, col.names = df_names)
+  
+}
+
+make_Wstation <- function(x, pixel, col_names){
+  
+
+  # pixel <- 1
+  
+  
+  # tic("make weather station using readr")
+  purrr::map(.x = x, .f = read_daily, skip = pixel, col_names = col_names) %>%
+    # rbindlist()
+    bind_rows()
+  # toc()
+  
+  # fread_folder(path, extension = "CSV", skip = 1)
+  
+  
+}
+
+export_weather <- function(x, pixel, out_path){
+  
+  df_names <- readr::read_csv(x[1], n_max = 0, col_types = cols()) %>% 
+    names()
+  
+  weather_station <- make_Wstation(x, pixel , col_names = df_names)
+  name_station <- paste0(out_path, 'daily_pixel_', pixel, '.csv')
+  write_csv(x = weather_station, path = name_station) 
+  
 }
 
 
-export_weather
+
+# select_pixel <- function(pixel, x){
+#   
+#   purrr::map(.x = x, .f = function(x, pixel) x[pixel, ], pixel = pixel) %>%
+#     dplyr::bind_rows()
+#   
+#   
+# }
+
+# make_Wstation <- function(pixel, x){
+#   
+#   # pixel <- 1:20
+#   # x 
+#   # plan(multisession, workers = cpus)
+#   x <- purrr::map(.x = pixel, ~future(select_pixel(pixel = .x, x))) %>%
+#     future::values()
+#  
+# }
+
+
+
+
+extract_Wstation <- function(x){
+  
+  num_pixel <- purrr::map(.x = x, .f = function(x) dim(x)[1]) %>%
+    unlist %>%
+    unique()
+  
+  
+  # cpus <- future::availableCores() - 3
+  
+  x <- make_Wstation(pixel = 1:num_pixel, x)
+  
+  return(x)
+  # strategy <- "future::multisession"
+  
+  
+  # params <- purrr::map(.x = 1:2, .f = function(x) list(pixel = x))
+  # 
+  # df <- dplyr::data_frame(f = 'make_Wstation', x = x)
+  # invoke_map(df$f, df$pixel)
+  # 
+  # 
+  # make_Wstation(x, pixel = 1)
+  # purrr::invoke(make_Wstation, params)
+  # invoke_map("make_Wstation", list(x = x, pixel = params))
+  # purrr::map(.x = num_pixel, .f = make_Wstation, pixel = 1)
+  # 
+  # df <- dplyr::data_frame(
+  #   f = c("runif", "rpois", "rnorm"),
+  #   params = list(
+  #     list(n = 10),
+  #     list(n = 5, lambda = 10),
+  #     list(n = 10, mean = -3, sd = 10)
+  #   )
+  # )
+  # df
+  # invoke_map(df$f, df$params)
+  
+}
+
+
+export_weather <- function(x, path){
+  
+  # path <- '/mnt/workspace_cluster_9/AgMetGaps/weather_analysis/precipitation_points/'
+  file_name <- paste0(path, 1:length(x), '.csv')
+  
+  # purrr::map2(.x = prueba, .y = file_name, ~future(write_csv(x = .x, path = .y)))
+  
+  f <- future({ for(i in 1:length(prueba)){
+    
+    write_csv(x = prueba[[i]], path = file_name[i]) 
+  }
+  }) 
+  
+  while (!resolved(f)) {
+    cat("Making climate csv")
+    cat("\n")
+  }
+
+}
+
+for(i in 1:500){
+  # print(i)
+  
+  future({ for(i in 1:1000){
+    
+    write_csv(x = prueba[[i]], path = file_name[i]) 
+  }
+    }) 
+ 
+  
+}
 
 
 
