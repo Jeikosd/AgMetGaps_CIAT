@@ -313,6 +313,7 @@ name <- paste0(crop,'_precip')
 
 
 
+
 #system.time(test <-   extract_months(dates = point_dates, atelier = planting, out = out1, name = name))
 
 id_creation <- function(.x){
@@ -321,6 +322,9 @@ id_creation <- function(.x){
     mutate(id = 1:length(type)) %>%
     ungroup() 
 }
+
+
+
 
 
 
@@ -335,33 +339,38 @@ system.time(
                                    out = out1, name = name1 ) )
 )
 
+# user   system  elapsed 
+# 3308.409   71.275 3903.678 
 
-#### aun se debe modificar esta para que corra con todas las temporadas
 
-climatology <- function(test){
+
+
+climatology <- function(test, out1){
   
   # creation to the climatology
-  prec_chirps <- test %>% 
-    select( i, each_Pclim) %>% 
-    unnest %>% 
+  prec_chirps <- test %>%  
+    select(i, each_Pclim) %>% 
+    unnest %>%
     group_by(i, lat,  long, phase) %>%
     summarise(climatology_prec = mean(prec_clim), sd.prec = sd(prec_clim)) %>%
     mutate(cv.prec = (sd.prec/climatology_prec) * 100) %>% 
     ungroup
+  
+  
+  file <- prec_chirps %>% select(phase) %>% .[1, ] %>% as.character
+  write.csv(x = prec_chirps, file = paste0(out1, 'Climatology_', file, '.csv'), row.names = FALSE)
   
   return(prec_chirps)}
 
 
 
 
-x <- test %>% 
-  climatology %>%
-  rename(long =  lat, lat = long)
+raining <- idea %>%
+  mutate(clima =  purrr::map(.x = ext.months, .f = climatology, out1 = out1)) %>%
+  select(control, clima)
 
 
 
-
-var <- 'climatology_prec'
 
 # for default rasterize with 'pdate'. 
 rasterize_mod <- function(x, raster, var){
@@ -374,12 +383,10 @@ rasterize_mod <- function(x, raster, var){
     select(!!var) %>%
     magrittr::extract2(1)
   
-  
   y <- rasterize(points, raster, vals)
   
-  
   ### Lectura del shp
-  shp <- shapefile(paste("/mnt/workspace_cluster_9/AgMetGaps/Inputs/shp/purrr::mapa_mundi.shp",sep="")) %>% 
+  shp <- shapefile(paste("/mnt/workspace_cluster_9/AgMetGaps/Inputs/shp/mapa_mundi.shp",sep="")) %>% 
     crop(extent(-180, 180, -50, 50))
   u<-borders(shp, colour="black")
   
@@ -406,14 +413,20 @@ rasterize_mod <- function(x, raster, var){
     theme_bw() + theme(panel.background=element_rect(fill="white",colour="black")) 
   
   
-  
-  file_name <- paste0('/mnt/workspace_cluster_9/AgMetGaps/monthly_out/', var)
+  temp <- x %>% select(phase) %>% .[1,] %>% as.character
+  file_name <- paste0('/mnt/workspace_cluster_9/AgMetGaps/monthly_out/', crop, '/precip/graphs_rasters/', temp, '.', var)
   ggsave(paste0( file_name, '.png'), width = 10, height = 4)
   writeRaster(y,  paste0( file_name, '.tif'))
   
   ### Write in GeoJeison format 
   
   return(y)}
+
+
+rasters_raining <- raining %>% 
+  mutate(mean = purrr::map(.x =  clima, .f =  rasterize_mod, raster = pdate, var = 'climatology_prec')) %>%
+  mutate(sd = purrr::map(.x =  clima, .f =  rasterize_mod, raster = pdate, var = 'sd.prec')) %>% 
+  mutate(sd = purrr::map(.x =  clima, .f =  rasterize_mod, raster = pdate, var = 'cv.prec'))
 
 
 
