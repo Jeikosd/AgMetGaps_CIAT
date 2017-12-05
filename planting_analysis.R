@@ -23,6 +23,11 @@ library(chron)
 
 setwd('/mnt/workspace_cluster_9/AgMetGaps')
 
+crop <- 'rice' # rice , maize , wheat
+
+
+## Proof for rice information 
+
 
 ##################################################################
 #######                   Planting dates                  ######## 
@@ -31,7 +36,7 @@ setwd('/mnt/workspace_cluster_9/AgMetGaps')
 
 ## Proof for maize information 
 
-# D:/AgMaps/planting_dates/calendar/
+# D:/Agpurrr::maps/planting_dates/calendar/
 
 
 pdate <- raster(paste0('Inputs/05-Crop Calendar Sacks/', 'Rice.crop.calendar.nc'), varname = 'plant') %>% 
@@ -85,15 +90,15 @@ month_above <- function(.x){
 
 crop.time <- inner_join(pdate_points, hdate_points) %>% 
   select(-julian.start, -julian.h) %>% 
-  mutate(flor = map2(.x = Planting, .y = harvest, .f = compute_flor)) %>% 
+  mutate(flor = purrr::map2(.x = Planting, .y = harvest, .f = compute_flor)) %>% 
   unnest() %>% 
   select(x, y, Planting, flor, harvest) %>% 
-  mutate(a.Planting1 = map(.x = Planting, .f = month_below), 
-         a.Planting3 = map(.x = Planting, .f = month_above), 
-         b.flor1 = map(.x = flor, .f = month_below), 
-         b.flor3 = map(.x = flor, .f = month_above),
-         c.harvest1= map(.x = harvest, .f = month_below), 
-         c.harvest3 = map(.x = harvest, .f = month_above)) %>% 
+  mutate(a.Planting1 = purrr::map(.x = Planting, .f = month_below), 
+         a.Planting3 = purrr::map(.x = Planting, .f = month_above), 
+         b.flor1 = purrr::map(.x = flor, .f = month_below), 
+         b.flor3 = purrr::map(.x = flor, .f = month_above),
+         c.harvest1= purrr::map(.x = harvest, .f = month_below), 
+         c.harvest3 = purrr::map(.x = harvest, .f = month_above)) %>% 
   unnest  %>% 
   rename(a.Planting2 = Planting, b.flor2 = flor, c.harvest2 = harvest) %>% 
   select(x,y, a.Planting1, a.Planting2, a.Planting3, b.flor1, b.flor2, b.flor3, 
@@ -168,7 +173,7 @@ sp_pdate <- rasterToPolygons(pdate,  dissolve = F)
 ##########        Precipitation: Chirps                 ########## 
 ##################################################################
 
-# 'D:/AgMaps/Chips_Monthly/'
+# 'D:/Agpurrr::maps/Chips_Monthly/'
 ## asignar la banda a que Año y mes pertenecen
 n_bands <- nc_open(paste0('Chips_Monthly/', 'chirps-v2.0.monthly.nc'))$dim$time$len
 n_bands <- n_bands - 8 # temporal
@@ -187,10 +192,10 @@ system.time(
     data_frame(date = .) %>%
     mutate(year = year(date), month = month(date)) %>%
     mutate(band = 1:n_bands, file = rep(paste0('Chips_Monthly/', 'chirps-v2.0.monthly.nc'), n_bands)) %>%
-    mutate(load_raster = map2(.x = file, .y = band, .f = ~future(raster_mod(.x,.y)))) %>%
-    mutate(load_raster = map(.x = load_raster, .f = ~value(.x))) %>% 
-    mutate(raster_df = map(.x = load_raster, .f = ~future(velox(.x)))) %>%
-    mutate(raster_df = map(raster_df, .f = ~value(.x))) 
+    mutate(load_raster = purrr::map2(.x = file, .y = band, .f = ~future(raster_mod(.x,.y)))) %>%
+    mutate(load_raster = purrr::map(.x = load_raster, .f = ~value(.x))) %>% 
+    mutate(raster_df = purrr::map(.x = load_raster, .f = ~future(velox(.x)))) %>%
+    mutate(raster_df = purrr::map(raster_df, .f = ~value(.x))) 
 )
   
   
@@ -201,8 +206,8 @@ system.time(
 
 system.time(  
   dates_raster <- dates_raster %>% 
-  mutate(points = map(.x = raster_df, .f = ~future(extract_velox(velox_Object = .x, points = sp_pdate)))) %>%
-  mutate(points = map(points, ~value(.x))) 
+  mutate(points = purrr::map(.x = raster_df, .f = ~future(extract_velox(velox_Object = .x, points = sp_pdate)))) %>%
+  mutate(points = purrr::map(points, ~value(.x))) 
 )
 
 
@@ -247,9 +252,7 @@ planting <- crop.time %>%
 ### This function extract for each pixel the chirps information 
 ### i represents the exactly pixel 
 
-make_station <- function(x, out, name){
-  
-  file_name <- paste0( out, name )
+make_station <- function(x, file_name){
   
   weather_station <- x %>% 
     bind_rows() %>%
@@ -288,14 +291,14 @@ extract_months <- function( dates, atelier, out1, name){
   
   out <- paste0(out1, folder, '/')
   if(dir.exists(out) ==  'FALSE'){dir.create(paste0(out1, folder, '/'))}else if(dir.exists(out) ==  'TRUE'){print('TRUE')}
-  
+  file_name <- paste0( out, name )
   
   
   ### Is necessary parallelize the process?
   test <-point_dates %>% 
     mutate(i = 1:nrow(.)) %>%
     nest(-i) %>% 
-    mutate(stations = map(.x =  data , .f =  make_station, out = out, name =  name)) %>% 
+    mutate(stations = purrr::map(.x =  data , .f =  make_station, file_name = file_name)) %>% 
     mutate(each_Pclim =  purrr::map(.x =  stations, .f = point_extract, y = atelier))
   
   return(test) } # in case necesary filter for 100 pixels 
@@ -305,29 +308,35 @@ extract_months <- function( dates, atelier, out1, name){
 
 calendar <- crop.time 
 
-
-out1 <- '/mnt/workspace_cluster_9/AgMetGaps/monthly_out/rice/precip/'
-name <- 'rice_precip'
-
-
-planting <- crop.time %>% 
-  filter(phase == 'a') %>% 
-  rename(lat = x,  long =  y) %>%
-  group_by(type) %>%
-  mutate(id = 1:length(type)) %>%
-  ungroup()
+out1 <- paste0('/mnt/workspace_cluster_9/AgMetGaps/monthly_out/',crop,'/precip/')
+name <- paste0(crop,'_precip')
 
 
 
+#system.time(test <-   extract_months(dates = point_dates, atelier = planting, out = out1, name = name))
 
-
-atelier <- planting
+id_creation <- function(.x){
+  .x %>% 
+    group_by(type) %>%
+    mutate(id = 1:length(type)) %>%
+    ungroup() 
+}
 
 
 
 system.time(
-  test <-   extract_months(dates = point_dates, atelier = planting, out = out1, name = name)
+  idea <- crop.time %>% 
+    rename(long = x,  lat  =  y) %>%
+    mutate(control =  phase)  %>% 
+    nest(-control) %>% 
+    mutate(id_data = purrr::map(.x = data, .f = id_creation)) %>% 
+    select(control, id_data) %>% 
+    mutate(ext.months = purrr::map(.x = id_data,  .f = extract_months, dates = point_dates, 
+                                   out = out1, name = name1 ) )
 )
+
+
+#### aun se debe modificar esta para que corra con todas las temporadas
 
 climatology <- function(test){
   
@@ -351,15 +360,11 @@ x <- test %>%
 
 
 
-Chirps_raster <- raster(paste0('Chips_Monthly/', 'chirps-v2.0.monthly.nc')) 
-Chirps_raster %>%  plot
 
 var <- 'climatology_prec'
 
+# for default rasterize with 'pdate'. 
 rasterize_mod <- function(x, raster, var){
-  # x <- proof
-  # r <- rain.all$mean[[1]]
-  # var <- 'DJF.1'
   
   points <- x %>%
     select(long, lat) %>%
@@ -370,12 +375,13 @@ rasterize_mod <- function(x, raster, var){
     magrittr::extract2(1)
   
   
-  y <- rasterize(points, pdate, vals)
-  
-  plot(y)
+  y <- rasterize(points, raster, vals)
   
   
-  base_world <- map_data("world")
+  ### Lectura del shp
+  shp <- shapefile(paste("/mnt/workspace_cluster_9/AgMetGaps/Inputs/shp/purrr::mapa_mundi.shp",sep="")) %>% 
+    crop(extent(-180, 180, -50, 50))
+  u<-borders(shp, colour="black")
   
   
   myPalette <-  colorRampPalette(c("navyblue","#2166AC", "dodgerblue3","lightblue", "lightcyan",  "white",  "yellow","orange", "orangered","#B2182B", "red4"))
@@ -385,40 +391,29 @@ rasterize_mod <- function(x, raster, var){
   ewlbls <- unlist(lapply(ewbrks, function(x) ifelse(x < 0, paste(abs(x), "°W"), ifelse(x > 0, paste( abs(x), "°E"),x))))
   nslbls <- unlist(lapply(nsbrks, function(x) ifelse(x < 0, paste(abs(x), "°S"), ifelse(x > 0, paste(abs(x), "°N"),x))))
   
-  
-  
-  
-  
-  
-  
-  
-  mapWorld <- borders("world", colour="black", y = c(-30, 40))
+  # Blues<-colorRampPalette(c('#fff7fb','#ece7f2' ,'#edf8b1','#9ecae1', '#7fcdbb','#2c7fb8','#a6bddb','#1c9099','#addd8e', '#31a354'))
   Blues<-colorRampPalette(c('#fff7fb','#ece7f2','#d0d1e6','#a6bddb','#74a9cf','#3690c0','#0570b0','#045a8d','#023858','#233159'))
   
+  
   rasterVis::gplot(y) + 
-    geom_tile(aes(fill = value)) +  mapWorld  +
+    geom_tile(aes(fill = value)) + 
+    u + 
     coord_equal() +
     labs(x="Longitude",y="Latitude", fill = " ")   +
     scale_fill_gradientn(colours =Blues(100), na.value="white") +
     scale_x_continuous(breaks = ewbrks, labels = ewlbls, expand = c(0, 0)) +
     scale_y_continuous(breaks = nsbrks, labels = nslbls, expand = c(0, 0)) +
-    theme_bw() + theme(panel.background=element_rect(fill="white",colour="black"))  
-  
-  ggsave('/mnt/workspace_cluster_9/AgMetGaps/monthly_out/test.png', width = 10, height = 4)
+    theme_bw() + theme(panel.background=element_rect(fill="white",colour="black")) 
   
   
   
+  file_name <- paste0('/mnt/workspace_cluster_9/AgMetGaps/monthly_out/', var)
+  ggsave(paste0( file_name, '.png'), width = 10, height = 4)
+  writeRaster(y,  paste0( file_name, '.tif'))
   
-  
-  
-  
-  
-  
-  
+  ### Write in GeoJeison format 
   
   return(y)}
-
-plot(rasterize_mod(proof, Chirps_raster, 'climatology_prec'))
 
 
 
@@ -478,7 +473,7 @@ plot(rasterize_mod(proof, Chirps_raster, 'climatology_prec'))
   
   
 
-# 'D:/AgMaps/GHCN_CAMS/'
+# 'D:/Agpurrr::maps/GHCN_CAMS/'
 ## asignar la banda a que Año y mes pertenecen
 n_bands <- nc_open(paste0('Inputs/GHCN_CAMS/', 'data.nc'))$dim$T$len
 n_bands <- 36*12 # temporal 1981 to 2016
@@ -496,12 +491,12 @@ GHCN_CAMS <-   str_extract(nc_open(paste0('Chips_Monthly/', 'chirps-v2.0.monthly
   data_frame(date = .) %>%
   mutate(year = year(date), month = month(date)) %>%
   mutate(band = 1:n_bands, file = rep(paste0('Inputs/GHCN_CAMS/', 'data.nc'), n_bands)) %>%
-  mutate(load_raster = map2(.x = file, .y = band, .f = ~future(raster_mod_temp(.x,.y)))) %>%
-  mutate(load_raster = map(.x = load_raster, .f = ~value(.x))) %>% 
-  mutate(raster_df = map(.x = load_raster, .f = ~future(velox(.x)))) %>%
-  mutate(raster_df = map(raster_df, .f = ~value(.x))) %>% 
-  mutate(points = map(.x = raster_df, .f = ~future(extract_velox_temp(velox_Object = .x, points = sp_pdate)))) %>%
-  mutate(points = map(points, ~value(.x))) 
+  mutate(load_raster = purrr::map2(.x = file, .y = band, .f = ~future(raster_mod_temp(.x,.y)))) %>%
+  mutate(load_raster = purrr::map(.x = load_raster, .f = ~value(.x))) %>% 
+  mutate(raster_df = purrr::map(.x = load_raster, .f = ~future(velox(.x)))) %>%
+  mutate(raster_df = purrr::map(raster_df, .f = ~value(.x))) %>% 
+  mutate(points = purrr::map(.x = raster_df, .f = ~future(extract_velox_temp(velox_Object = .x, points = sp_pdate)))) %>%
+  mutate(points = purrr::map(points, ~value(.x))) 
 )
 
 
@@ -523,11 +518,11 @@ GHCN_CAMS <-   str_extract(nc_open(paste0('Chips_Monthly/', 'chirps-v2.0.monthly
 Yield.G <- list.files(path = 'Inputs/Yield_Gaps_ClimateBins/rice_yieldgap_netcdf/', 
                       pattern = 'YieldGap.nc', full.names = TRUE) %>%
   as.tibble %>% 
-  mutate(load_raster = map(.x = value, .f = function(.x){ 
+  mutate(load_raster = purrr::map(.x = value, .f = function(.x){ 
     raster(.x) %>%  crop(extent(-180, 180, -50, 50))})) %>%
-  mutate(raster_df =  map(.x = load_raster, .f = velox::velox) ) 
+  mutate(raster_df =  purrr::map(.x = load_raster, .f = velox::velox) ) 
 
-# mutate(points = map(.x = raster_df, .f = ~future(extract_velox_temp(velox_Object = .x, points = sp_pdate))))
+# mutate(points = purrr::map(.x = raster_df, .f = ~future(extract_velox_temp(velox_Object = .x, points = sp_pdate))))
 
 coords <- coordinates(sp_pdate) %>%
   tbl_df() %>%
@@ -569,7 +564,7 @@ grap_variability <-  inner_join(cropV.temp , cropV.prec)  %>%
   nest(-other) %>% 
   select(data) %>% 
   unlist(recursive = F)  %>% 
-  map(.x = . , .f = function(.x){
+  purrr::map(.x = . , .f = function(.x){
     name <- .x$value[1]     
     t <- .x %>% 
       set_names(., paste0(name, '.', names(.x))) %>%
