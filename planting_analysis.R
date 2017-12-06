@@ -426,7 +426,7 @@ rasterize_mod <- function(x, raster, var){
 rasters_raining <- raining %>% 
   mutate(mean = purrr::map(.x =  clima, .f =  rasterize_mod, raster = pdate, var = 'climatology_prec')) %>%
   mutate(sd = purrr::map(.x =  clima, .f =  rasterize_mod, raster = pdate, var = 'sd.prec')) %>% 
-  mutate(sd = purrr::map(.x =  clima, .f =  rasterize_mod, raster = pdate, var = 'cv.prec'))
+  mutate(cv = purrr::map(.x =  clima, .f =  rasterize_mod, raster = pdate, var = 'cv.prec'))
 
 
 
@@ -511,6 +511,96 @@ GHCN_CAMS <-   str_extract(nc_open(paste0('Chips_Monthly/', 'chirps-v2.0.monthly
   mutate(points = purrr::map(.x = raster_df, .f = ~future(extract_velox_temp(velox_Object = .x, points = sp_pdate)))) %>%
   mutate(points = purrr::map(points, ~value(.x))) 
 )
+
+
+
+
+
+
+###### Creation for the temperatures seasonals and climatologies 
+
+
+point_temp <-  GHCN_CAMS %>% 
+  select( year, month, points) %>% 
+  unnest %>% 
+  group_by(lat, long) %>%
+  nest() %>%
+  mutate(id = 1:nrow(.))
+
+
+
+
+
+
+
+
+### This function extract for each pixel temp information 
+### i represents the exactly pixel 
+
+
+point_extractT <- function(x, y){
+  
+  proof <-  x  %>%
+    inner_join(y , ., by = c('id', 'month')) %>%
+    select(-lat.y, -long.y) %>%
+    group_by(phase, year, lat.x, long.x) %>%
+    rename(lat = lat.x, long = long.x, precip =  values) %>% 
+    summarise(Temp_clim = mean(precip)) %>%
+    ungroup()
+  
+  return(proof)}
+
+
+
+
+extract_monthsT <- function( dates, atelier, out1, name){
+  
+  folder <- atelier %>% 
+    select(phase) %>% 
+    filter(row_number() == 1) %>% 
+    as.character
+  
+  
+  out <- paste0(out1, folder, '/')
+  if(dir.exists(out) ==  'FALSE'){dir.create(paste0(out1, folder, '/'))}else if(dir.exists(out) ==  'TRUE'){print('TRUE')}
+  
+  file_name <- paste0( out, name )
+  
+  ### Is necessary parallelize the process?
+  test <- point_dates %>% 
+    mutate(i = 1:nrow(.)) %>%
+    nest(-i) %>% 
+    mutate(stations = purrr::map(.x =  data , .f =  make_station, file_name =  file_name))  %>%   
+    mutate(each_Pclim =  purrr::map(.x =  stations, .f = point_extractT, y = atelier))
+  
+  return(test) } # in case necesary filter for 100 pixels 
+
+
+
+
+
+out2 <-  '/mnt/workspace_cluster_9/AgMetGaps/monthly_out/rice/temp/'
+name2 <- 'rice_temp'
+
+
+
+
+system.time(
+  idea_temp <- crop.time %>% 
+    rename(long = x,  lat  =  y) %>%
+    mutate(control =  phase)  %>% 
+    nest(-control) %>% 
+    mutate(id_data = purrr::map(.x = data, .f = id_creation)) %>% 
+    select(control, id_data) %>% 
+    mutate(ext.months = purrr::map(.x = id_data,  .f = extract_monthsT, dates = point_temp   , 
+                                   out = out2, name = name2 ) )
+)
+
+
+
+
+
+
 
 
 
