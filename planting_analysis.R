@@ -538,13 +538,42 @@ point_temp <-  GHCN_CAMS %>%
 ### i represents the exactly pixel 
 
 
+
+### This function extract for each pixel temp information 
+### i represents the exactly pixel 
+
+
+
+make_stationT <- function(x, file_name){
+  
+  weather_station <- x %>% 
+    bind_rows() %>%
+    unnest() %>%
+    mutate(valuesC =  values - 273.15)
+  
+  coord <- weather_station %>%
+    dplyr::select(lat, long) %>%
+    distinct()
+  
+  lat <- dplyr::pull(coord, 'lat')
+  long <- dplyr::pull(coord, 'long')
+  
+  
+  write_csv(weather_station, path = paste0(paste(file_name, lat, long, sep = '_'), '.csv'))
+  return(weather_station)}
+
+
+
+
+
+
 point_extractT <- function(x, y){
   
   proof <-  x  %>%
     inner_join(y , ., by = c('id', 'month')) %>%
     select(-lat.y, -long.y) %>%
     group_by(phase, year, lat.x, long.x) %>%
-    rename(lat = lat.x, long = long.x, precip =  values) %>% 
+    rename(lat = lat.x, long = long.x, precip =  valuesC) %>% 
     summarise(Temp_clim = mean(precip)) %>%
     ungroup()
   
@@ -570,7 +599,7 @@ extract_monthsT <- function( dates, atelier, out1, name){
   test <- point_dates %>% 
     mutate(i = 1:nrow(.)) %>%
     nest(-i) %>% 
-    mutate(stations = purrr::map(.x =  data , .f =  make_station, file_name =  file_name))  %>%   
+    mutate(stations = purrr::map(.x =  data , .f =  make_stationT, file_name =  file_name))  %>%   
     mutate(each_Pclim =  purrr::map(.x =  stations, .f = point_extractT, y = atelier))
   
   return(test) } # in case necesary filter for 100 pixels 
@@ -595,6 +624,111 @@ system.time(
     mutate(ext.months = purrr::map(.x = id_data,  .f = extract_monthsT, dates = point_temp   , 
                                    out = out2, name = name2 ) )
 )
+
+#    user   system  elapsed 
+#3811.358  135.112 4788.661 
+
+
+
+climatologyT <- function(test, out1){
+  
+  # creation to the climatology
+  T.GHCN_CAMS <- test %>%  
+    select(i, each_Pclim) %>% 
+    unnest %>%
+    group_by(i, lat,  long, phase) %>%
+    summarise(climatology_temp = mean(Temp_clim), sd.temp = sd(Temp_clim)) %>%
+    mutate(cv.prec = (sd.temp/climatology_temp) * 100) %>% 
+    ungroup
+  
+  
+  file <- T.GHCN_CAMS %>% select(phase) %>% .[1, ] %>% as.character
+  write.csv(x = T.GHCN_CAMS, file = paste0(out1, 'TClimatology_', file, '.csv'), row.names = FALSE)
+  
+  return(T.GHCN_CAMS)}
+
+
+
+
+temperature <- idea_temp %>%
+  mutate(climaT =  purrr::map(.x = ext.months, .f = climatologyT, out1 = out2)) %>%
+  select(control, climaT)
+
+
+
+
+# for default rasterize with 'pdate'. 
+rasterize_mod <- function(x, raster, var){
+  
+  points <- x %>%
+    select(long, lat) %>%
+    data.frame 
+  
+  vals <- x %>%
+    select(!!var) %>%
+    magrittr::extract2(1)
+  
+  y <- rasterize(points, raster, vals)
+  
+  ### Lectura del shp
+  shp <- shapefile(paste("/mnt/workspace_cluster_9/AgMetGaps/Inputs/shp/mapa_mundi.shp",sep="")) %>% 
+    crop(extent(-180, 180, -50, 50))
+  u<-borders(shp, colour="black")
+  
+  
+  myPalette <-  colorRampPalette(c("navyblue","#2166AC", "dodgerblue3","lightblue", "lightcyan",  "white",  "yellow","orange", "orangered","#B2182B", "red4"))
+  
+  ewbrks <- c(seq(-180,0,45), seq(0, 180, 45))
+  nsbrks <- seq(-50,50,25)
+  ewlbls <- unlist(lapply(ewbrks, function(x) ifelse(x < 0, paste(abs(x), "°W"), ifelse(x > 0, paste( abs(x), "°E"),x))))
+  nslbls <- unlist(lapply(nsbrks, function(x) ifelse(x < 0, paste(abs(x), "°S"), ifelse(x > 0, paste(abs(x), "°N"),x))))
+  
+  # Blues<-colorRampPalette(c('#fff7fb','#ece7f2' ,'#edf8b1','#9ecae1', '#7fcdbb','#2c7fb8','#a6bddb','#1c9099','#addd8e', '#31a354'))
+  Blues<-colorRampPalette(c('#fff7fb','#ece7f2','#d0d1e6','#a6bddb','#74a9cf','#3690c0','#0570b0','#045a8d','#023858','#233159'))
+  
+  
+  rasterVis::gplot(y) + 
+    geom_tile(aes(fill = value)) + 
+    u + 
+    coord_equal() +
+    labs(x="Longitude",y="Latitude", fill = " ")   +
+    scale_fill_gradientn(colours =Blues(100), na.value="white") +
+    scale_x_continuous(breaks = ewbrks, labels = ewlbls, expand = c(0, 0)) +
+    scale_y_continuous(breaks = nsbrks, labels = nslbls, expand = c(0, 0)) +
+    theme_bw() + theme(panel.background=element_rect(fill="white",colour="black")) 
+  
+  
+  temp <- x %>% select(phase) %>% .[1,] %>% as.character
+  file_name <- paste0('/mnt/workspace_cluster_9/AgMetGaps/monthly_out/', crop, '/precip/graphs_rasters/', temp, '.', var)
+  ggsave(paste0( file_name, '.png'), width = 10, height = 4)
+  writeRaster(y,  paste0( file_name, '.tif'))
+  
+  ### Write in GeoJeison format 
+  
+  return(y)}
+
+
+rasters_raining <- raining %>% 
+  mutate(mean = purrr::map(.x =  clima, .f =  rasterize_mod, raster = pdate, var = 'climatology_prec')) %>%
+  mutate(sd = purrr::map(.x =  clima, .f =  rasterize_mod, raster = pdate, var = 'sd.prec')) %>% 
+  mutate(cv = purrr::map(.x =  clima, .f =  rasterize_mod, raster = pdate, var = 'cv.prec'))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
