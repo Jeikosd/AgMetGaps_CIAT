@@ -519,24 +519,17 @@ GHCN_CAMS <-   str_extract(nc_open(paste0('Chips_Monthly/', 'chirps-v2.0.monthly
 
 ###### Creation for the temperatures seasonals and climatologies 
 
-
 point_temp <-  GHCN_CAMS %>% 
   select( year, month, points) %>% 
   unnest %>% 
+  mutate(valuesC= values - 273.15) %>%
   group_by(lat, long) %>%
   nest() %>%
   mutate(id = 1:nrow(.))
 
 
 
-
-
-
-
-
-### This function extract for each pixel temp information 
-### i represents the exactly pixel 
-
+# point_temp  %>% unnest %>% mutate(valuesC= values - 273.15) %>%  select(values, valuesC) %>% summary()
 
 
 ### This function extract for each pixel temp information 
@@ -544,26 +537,17 @@ point_temp <-  GHCN_CAMS %>%
 
 
 
-make_stationT <- function(x, file_name){
-  
-  weather_station <- x %>% 
-    bind_rows() %>%
-    unnest() %>%
-    mutate(valuesC =  values - 273.15)
-  
-  coord <- weather_station %>%
-    dplyr::select(lat, long) %>%
-    distinct()
-  
-  lat <- dplyr::pull(coord, 'lat')
-  long <- dplyr::pull(coord, 'long')
-  
-  
-  write_csv(weather_station, path = paste0(paste(file_name, lat, long, sep = '_'), '.csv'))
-  return(weather_station)}
+### This function extract for each pixel temp information 
+### i represents the exactly pixel 
 
 
-
+# Min.   :233.8  
+# 1st Qu.:288.1  
+# Median :296.3  
+# Mean   :293.0  
+# 3rd Qu.:300.0  
+# Max.   :335.8  
+# NA's   :1728 
 
 
 
@@ -573,8 +557,8 @@ point_extractT <- function(x, y){
     inner_join(y , ., by = c('id', 'month')) %>%
     select(-lat.y, -long.y) %>%
     group_by(phase, year, lat.x, long.x) %>%
-    rename(lat = lat.x, long = long.x, precip =  valuesC) %>% 
-    summarise(Temp_clim = mean(precip)) %>%
+    rename(lat = lat.x, long = long.x, tempk =  values, tempC = valuesC) %>% 
+    summarise(Temp_clim = mean(tempC), Temp_k = mean(tempk)) %>%
     ungroup()
   
   return(proof)}
@@ -593,13 +577,13 @@ extract_monthsT <- function( dates, atelier, out1, name){
   out <- paste0(out1, folder, '/')
   if(dir.exists(out) ==  'FALSE'){dir.create(paste0(out1, folder, '/'))}else if(dir.exists(out) ==  'TRUE'){print('TRUE')}
   
-  file_name <- paste0( out, name )
+  file_name <- paste0( out, name2 )
   
   ### Is necessary parallelize the process?
-  test <- point_dates %>% 
+  test <- point_temp %>% 
     mutate(i = 1:nrow(.)) %>%
     nest(-i) %>% 
-    mutate(stations = purrr::map(.x =  data , .f =  make_stationT, file_name =  file_name))  %>%   
+    mutate(stations = purrr::map(.x =  data , .f =  make_station, file_name =  file_name))  %>%   
     mutate(each_Pclim =  purrr::map(.x =  stations, .f = point_extractT, y = atelier))
   
   return(test) } # in case necesary filter for 100 pixels 
@@ -625,8 +609,8 @@ system.time(
                                    out = out2, name = name2 ) )
 )
 
-#    user   system  elapsed 
-#3811.358  135.112 4788.661 
+#     user   system  elapsed 
+# 3978.160  142.726 4981.255 
 
 
 
