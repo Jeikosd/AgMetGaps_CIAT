@@ -580,7 +580,7 @@ extract_monthsT <- function( dates, atelier, out1, name){
   file_name <- paste0( out, name2 )
   
   ### Is necessary parallelize the process?
-  test <- point_temp %>% 
+  test <- dates %>% 
     mutate(i = 1:nrow(.)) %>%
     nest(-i) %>% 
     mutate(stations = purrr::map(.x =  data , .f =  make_station, file_name =  file_name))  %>%   
@@ -613,6 +613,10 @@ system.time(
 # 3978.160  142.726 4981.255 
 
 
+# raster(paste0('Inputs/GHCN_CAMS/', 'data.nc')) %>% crop(extent( 0, 360, -50, 50 )) %>%  rotate %>% plot
+
+
+
 
 climatologyT <- function(test, out1){
   
@@ -622,7 +626,7 @@ climatologyT <- function(test, out1){
     unnest %>%
     group_by(i, lat,  long, phase) %>%
     summarise(climatology_temp = mean(Temp_clim), sd.temp = sd(Temp_clim)) %>%
-    mutate(cv.prec = (sd.temp/climatology_temp) * 100) %>% 
+    mutate(cv.temp = (sd.temp/climatology_temp) * 100) %>% 
     ungroup
   
   
@@ -633,10 +637,11 @@ climatologyT <- function(test, out1){
 
 
 
-
 temperature <- idea_temp %>%
   mutate(climaT =  purrr::map(.x = ext.months, .f = climatologyT, out1 = out2)) %>%
   select(control, climaT)
+
+
 
 
 
@@ -660,23 +665,21 @@ rasterize_mod <- function(x, raster, var){
   u<-borders(shp, colour="black")
   
   
-  myPalette <-  colorRampPalette(c("navyblue","#2166AC", "dodgerblue3","lightblue", "lightcyan",  "white",  "yellow","orange", "orangered","#B2182B", "red4"))
+  myPalette <-  colorRampPalette(c("navyblue","#2166AC", "lightblue",   "white",  "orangered","#B2182B", "red4"))
   
   ewbrks <- c(seq(-180,0,45), seq(0, 180, 45))
   nsbrks <- seq(-50,50,25)
   ewlbls <- unlist(lapply(ewbrks, function(x) ifelse(x < 0, paste(abs(x), "°W"), ifelse(x > 0, paste( abs(x), "°E"),x))))
   nslbls <- unlist(lapply(nsbrks, function(x) ifelse(x < 0, paste(abs(x), "°S"), ifelse(x > 0, paste(abs(x), "°N"),x))))
   
-  # Blues<-colorRampPalette(c('#fff7fb','#ece7f2' ,'#edf8b1','#9ecae1', '#7fcdbb','#2c7fb8','#a6bddb','#1c9099','#addd8e', '#31a354'))
-  Blues<-colorRampPalette(c('#fff7fb','#ece7f2','#d0d1e6','#a6bddb','#74a9cf','#3690c0','#0570b0','#045a8d','#023858','#233159'))
-  
+
   
   rasterVis::gplot(y) + 
     geom_tile(aes(fill = value)) + 
     u + 
     coord_equal() +
     labs(x="Longitude",y="Latitude", fill = " ")   +
-    scale_fill_gradientn(colours =Blues(100), na.value="white") +
+    scale_fill_gradientn(colours =myPalette(100), na.value="white")  +
     scale_x_continuous(breaks = ewbrks, labels = ewlbls, expand = c(0, 0)) +
     scale_y_continuous(breaks = nsbrks, labels = nslbls, expand = c(0, 0)) +
     theme_bw() + theme(panel.background=element_rect(fill="white",colour="black")) 
