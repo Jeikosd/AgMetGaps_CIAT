@@ -730,7 +730,8 @@ Yield.G <- list.files(path = 'Inputs/Yield_Gaps_ClimateBins/rice_yieldgap_netcdf
     raster(.x) %>%  crop(extent(-180, 180, -50, 50))})) %>%
   mutate(raster_df =  purrr::map(.x = load_raster, .f = velox::velox) ) 
 
-# mutate(points = purrr::map(.x = raster_df, .f = ~future(extract_velox_temp(velox_Object = .x, points = sp_pdate))))
+
+
 
 coords <- coordinates(sp_pdate) %>%
   tbl_df() %>%
@@ -741,10 +742,15 @@ test <- Yield.G$raster_df[[1]]$extract(sp_pdate, fun = function(x){
   tbl_df() %>%
   rename(gap = V1) %>%
   bind_cols(coords) %>%
-  dplyr::select(lat, long, gap)
+  mutate(i = 1:nrow(.)) %>%
+  dplyr::select(i, lat, long, gap)
 
 
-test[which(test$gap[] == 'NaN'), 3] <- NA
+test[which(test$gap[] == 'NaN'), 4] <- NA
+
+
+
+test
 
 
 
@@ -764,11 +770,9 @@ change_names <- function(.x, .y){
   name <- .y %>%
     as.character()
   
-  
   all <- .x %>% 
     select(-phase) %>%
     names
-  
   
   final <- .x %>% 
     select(-phase) %>%
@@ -780,18 +784,37 @@ change_names <- function(.x, .y){
 
 
 
-proof1 <- temperature %>% 
+I.Temp <- temperature %>% 
   mutate(clima =  purrr::map2(.x = climaT, .y = control, .f = change_names)) %>%
-  select(clima) 
+  select(clima) %>% 
+  split(., f = c('a', 'b', 'c')) %>%
+  lapply(., unnest) %>%
+  reduce(inner_join)
 
 
-
-proof2 <- raining %>% 
+I.Prec <- raining %>% 
   mutate(climate =  purrr::map2(.x = clima, .y = control, .f = change_names)) %>%
-  select(climate) 
+  select(climate)  %>% 
+  split(., f = c('a', 'b', 'c')) %>%
+  lapply(., unnest) %>%
+  reduce(inner_join)
 
 
 
+
+Climate <- inner_join(I.Prec, I.Temp)
+
+
+
+
+OB1 <- inner_join(Climate, test %>% select(-lat, -long), by = 'i')
+
+OB1 %>% select(gap) %>% summary
+# NA's   :11315  # Total = 23834   # Pixels coincidentes 12519 
+
+
+
+COB1 <- OB1 %>% na.omit 
 
 
 ##################################################################
@@ -802,49 +825,4 @@ proof2 <- raining %>%
 
 # temporal 
 
-
-grap_variability <-  inner_join(cropV.temp , cropV.prec)  %>% 
-  mutate(value1 =  value)  %>%
-  separate(value1, c('month', 'other'), '_')  %>%
-  select(-month) %>%
-  nest(-other) %>% 
-  select(data) %>% 
-  unlist(recursive = F)  %>% 
-  purrr::map(.x = . , .f = function(.x){
-    name <- .x$value[1]     
-    t <- .x %>% 
-      set_names(., paste0(name, '.', names(.x))) %>%
-      select(-1) 
-    return(t)}) %>% 
-  bind_cols() %>% 
-  rename(., lat =  month_flor.lat , long = month_flor.long) %>% 
-  select(-month_h.long, -month_h.lat,-month_start.lat ,-month_start.long) %>%
-  left_join(test, .)  
-
-
-
-
-
-
-
-# knitr
-
-
-
-# correlation 
-
-grap_variability %>% 
-  select(-lat, -long) %>% 
-  na.omit   %>%  # temporal
-  cor %>% 
-  abs %>% 
-  write.csv(., file = 'test.csv')
-
-
-
-
-
-
-################# Tropico Runs (temporarily)
-#################
 
