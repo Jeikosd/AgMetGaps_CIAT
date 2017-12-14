@@ -383,7 +383,7 @@ rasterize_mod <- function(x, raster, var){
     select(!!var) %>%
     magrittr::extract2(1)
   
-  y <- rasterize(points, raster, vals)
+  y <- rasterize(points, raster, vals, fun = sum)
   
   ### Lectura del shp
   shp <- shapefile(paste("/mnt/workspace_cluster_9/AgMetGaps/Inputs/shp/mapa_mundi.shp",sep="")) %>% 
@@ -609,8 +609,8 @@ system.time(
                                    out = out2, name = name2 ) )
 )
 
-#     user   system  elapsed 
-# 3978.160  142.726 4981.255 
+# user   system  elapsed 
+# 3864.637  132.726 4506.330 
 
 
 # raster(paste0('Inputs/GHCN_CAMS/', 'data.nc')) %>% crop(extent( 0, 360, -50, 50 )) %>%  rotate %>% plot
@@ -637,6 +637,17 @@ climatologyT <- function(test, out1){
 
 
 
+idea_temp %>%
+  filter(row_number() < 2) %>% 
+  select(ext.months) %>%
+  unnest %>%
+  select(i, each_Pclim) %>% 
+  unnest 
+
+
+
+
+
 temperature <- idea_temp %>%
   mutate(climaT =  purrr::map(.x = ext.months, .f = climatologyT, out1 = out2)) %>%
   select(control, climaT)
@@ -647,7 +658,7 @@ temperature <- idea_temp %>%
 
 
 # for default rasterize with 'pdate'. 
-rasterize_mod <- function(x, raster, var){
+rasterize_modT <- function(x, raster, var){
   
   points <- x %>%
     select(long, lat) %>%
@@ -657,16 +668,14 @@ rasterize_mod <- function(x, raster, var){
     select(!!var) %>%
     magrittr::extract2(1)
   
-  y <- rasterize(points, raster, vals)
+  y <- rasterize(points, raster, vals, fun = sum)
   
   ### Lectura del shp
   shp <- shapefile(paste("/mnt/workspace_cluster_9/AgMetGaps/Inputs/shp/mapa_mundi.shp",sep="")) %>% 
     crop(extent(-180, 180, -50, 50))
   u<-borders(shp, colour="black")
   
-  
-  myPalette <-  colorRampPalette(c("navyblue","#2166AC", "lightblue",   "white",  "orangered","#B2182B", "red4"))
-  
+
   ewbrks <- c(seq(-180,0,45), seq(0, 180, 45))
   nsbrks <- seq(-50,50,25)
   ewlbls <- unlist(lapply(ewbrks, function(x) ifelse(x < 0, paste(abs(x), "°W"), ifelse(x > 0, paste( abs(x), "°E"),x))))
@@ -679,14 +688,14 @@ rasterize_mod <- function(x, raster, var){
     u + 
     coord_equal() +
     labs(x="Longitude",y="Latitude", fill = " ")   +
-    scale_fill_gradientn(colours =myPalette(100), na.value="white")  +
+    scale_fill_distiller(palette = "RdBu", na.value="white") +
     scale_x_continuous(breaks = ewbrks, labels = ewlbls, expand = c(0, 0)) +
     scale_y_continuous(breaks = nsbrks, labels = nslbls, expand = c(0, 0)) +
     theme_bw() + theme(panel.background=element_rect(fill="white",colour="black")) 
   
   
   temp <- x %>% select(phase) %>% .[1,] %>% as.character
-  file_name <- paste0('/mnt/workspace_cluster_9/AgMetGaps/monthly_out/', crop, '/precip/graphs_rasters/', temp, '.', var)
+  file_name <- paste0('/mnt/workspace_cluster_9/AgMetGaps/monthly_out/', crop, '/temp/graphs_rasters/', temp, '.', var)
   ggsave(paste0( file_name, '.png'), width = 10, height = 4)
   writeRaster(y,  paste0( file_name, '.tif'))
   
@@ -695,41 +704,16 @@ rasterize_mod <- function(x, raster, var){
   return(y)}
 
 
-rasters_raining <- raining %>% 
-  mutate(mean = purrr::map(.x =  clima, .f =  rasterize_mod, raster = pdate, var = 'climatology_prec')) %>%
-  mutate(sd = purrr::map(.x =  clima, .f =  rasterize_mod, raster = pdate, var = 'sd.prec')) %>% 
-  mutate(cv = purrr::map(.x =  clima, .f =  rasterize_mod, raster = pdate, var = 'cv.prec'))
+rasters_temperature <- temperature %>% 
+  mutate(mean = purrr::map(.x =  climaT, .f =  rasterize_modT, raster = pdate, var = 'climatology_temp')) %>%
+  mutate(sd = purrr::map(.x =  climaT, .f =  rasterize_modT, raster = pdate, var = 'sd.temp')) %>% 
+  mutate(cv = purrr::map(.x =  climaT, .f =  rasterize_modT, raster = pdate, var = 'cv.temp'))
 
 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+# 38286 
 
 
 ##################################################################
@@ -766,7 +750,45 @@ test[which(test$gap[] == 'NaN'), 3] <- NA
 
 
 
+##############################################################################
+##############################################################################
+##############################################################################
+##############################################################################
+##############################################################################
+##############################################################################
+##############################################################################
 
+
+# .x =  data    .y = control 
+change_names <- function(.x, .y){
+  name <- .y %>%
+    as.character()
+  
+  
+  all <- .x %>% 
+    select(-phase) %>%
+    names
+  
+  
+  final <- .x %>% 
+    select(-phase) %>%
+    set_names(., paste0(name, '.', all))  %>% 
+    rename(i = !!paste0(name, '.', all[1]), 
+           lat = !!paste0(name, '.', all[2]), 
+           long = !!paste0(name, '.', all[3]))
+  return(final)}
+
+
+
+proof1 <- temperature %>% 
+  mutate(clima =  purrr::map2(.x = climaT, .y = control, .f = change_names)) %>%
+  select(clima) 
+
+
+
+proof2 <- raining %>% 
+  mutate(climate =  purrr::map2(.x = clima, .y = control, .f = change_names)) %>%
+  select(climate) 
 
 
 
@@ -817,3 +839,12 @@ grap_variability %>%
   cor %>% 
   abs %>% 
   write.csv(., file = 'test.csv')
+
+
+
+
+
+
+################# Tropico Runs (temporarily)
+#################
+
