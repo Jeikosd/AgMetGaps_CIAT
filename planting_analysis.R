@@ -817,6 +817,7 @@ OB1 %>% select(gap) %>% summary
 COB1 <- OB1 %>% na.omit 
 
 
+
 ##################################################################
 ##################################################################
 ##########        proof : first idea to analysis        ########## 
@@ -824,5 +825,80 @@ COB1 <- OB1 %>% na.omit
 ##################################################################
 
 # temporal 
+#### Correlations and rasterize 
+
+
+pdate %>%
+  plot
+
+
+
+var <- 'gap'
+
+rasterize_masa <-  function(var, x, raster){
+  points <- COB1 %>%
+    select(long, lat) %>%
+    data.frame 
+  
+  
+  vals <- COB1 %>%
+    select(!!var) %>%
+    magrittr::extract2(1)
+  
+  y <- rasterize(points, raster, vals, fun = sum)
+  return(y)}
+
+
+all_inf <- COB1 %>%  
+  names  %>% 
+  .[-(1:3)] %>% 
+  as.tibble() %>% 
+  rename(var = value) %>% 
+  mutate(rasters = purrr::map(.x = var, .f = rasterize_masa, x = COB1, raster = pdate))
+
+
+
+
+all_inf <- COB1 %>% 
+  names %>%
+  .[-(1:3)] %>%
+  as.list() %>%
+  lapply(., rasterize_masa,  x = COB1, raster = pdate) %>% 
+  stack %>% 
+  set_names(COB1 %>%  
+              names  %>% 
+              .[-(1:3)])
+
+
+
+
+
+library(spatialEco)
+
+# y = all_inf$gap
+# x = cualquier otro raster 
+
+correlations_exp <- function(.x, .y){
+  
+  RI <- rasterCorrelation(x = .x , y = .y) 
+  
+  RI %>% 
+    rasterVis::gplot(.) + 
+    geom_tile(aes(fill = value)) + 
+    u + 
+    coord_equal() +
+    labs(x="Longitude",y="Latitude", fill = " ")   +
+    scale_fill_distiller(palette = "RdBu", na.value="white") + 
+    scale_x_continuous(breaks = ewbrks, labels = ewlbls, expand = c(0, 0)) +
+    scale_y_continuous(breaks = nsbrks, labels = nslbls, expand = c(0, 0)) +
+    theme_bw() + theme(panel.background=element_rect(fill="white",colour="black")) 
+  
+  return(RI)}
+
+
+
+
+
+
 
 
