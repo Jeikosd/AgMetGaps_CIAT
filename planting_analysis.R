@@ -16,6 +16,7 @@ library(readr)
 library(stringr)
 library(tidyverse)
 library(chron)
+library(geoR)
 
 
 # tibbletime
@@ -815,6 +816,52 @@ OB1 %>% select(gap) %>% summary
 
 
 COB1 <- OB1 %>% na.omit 
+# COB1 %>% write.csv(file = 'monthly_out/summary.csv', row.names = FALSE)
+
+
+
+
+######## variograms 
+
+
+tbl <- read.csv('monthly_out/summary.csv') # read database in case we don't have it in memory
+View(tbl)
+
+var <- names(tbl)[-(1:3)]
+
+
+
+#### Creation function to make variograms for all variables, (revision of the spatial correlation).
+
+var1 <- var[1]
+
+all_variograms <- function(var, tbl){
+  
+  geo_gap <- tbl %>% select(long, lat, !!var) %>% as.geodata()
+  
+  
+  # binned variogram
+  vario.b <- variog(geo_gap)
+  env.mc <- variog.mc.env(geo_gap, obj.var=vario.b)
+  
+  png(file = paste0('monthly_out/', crop, '/variograms/variogram_', var, '.png'),  width = 720,
+      height = 600)
+  plot(vario.b, envelope=env.mc, col = 'red', pch =  19, main = var, lwd =3)
+  dev.off()
+}
+
+var %>% 
+  as.list %>% 
+  lapply(all_variograms, tbl = tbl)
+
+
+
+
+
+
+
+
+
 
 
 
@@ -826,6 +873,11 @@ COB1 <- OB1 %>% na.omit
 
 # temporal 
 #### Correlations and rasterize 
+
+
+
+
+#### Correlations and rasterize --- ok i'm revision to the process from here
 
 
 pdate %>%
@@ -849,6 +901,8 @@ rasterize_masa <-  function(var, x, raster){
   return(y)}
 
 
+
+##### Read all data set how rasters
 all_inf <- COB1 %>%  
   names  %>% 
   .[-(1:3)] %>% 
@@ -857,8 +911,7 @@ all_inf <- COB1 %>%
   mutate(rasters = purrr::map(.x = var, .f = rasterize_masa, x = COB1, raster = pdate))
 
 
-
-
+##### create a raster stack object with the all variables to the data set 
 all_inf <- COB1 %>% 
   names %>%
   .[-(1:3)] %>%
@@ -873,14 +926,20 @@ all_inf <- COB1 %>%
 
 
 
-library(spatialEco)
+# all_inf %>% crop(a) %>% getValues() %>%  summary()
 
 # y = all_inf$gap
 # x = cualquier otro raster 
 
+
+.x <- all_inf$b.cv.prec
+.y <- all_inf$gap
+
 correlations_exp <- function(.x, .y){
   
-  RI <- rasterCorrelation(x = .x , y = .y) 
+  
+  idea <- stack(.x,.y)
+  RI <- corLocal(idea[[1]], idea[[2]], ngb=5,   method = "pearson" )  
   
   RI %>% 
     rasterVis::gplot(.) + 
@@ -893,9 +952,43 @@ correlations_exp <- function(.x, .y){
     scale_y_continuous(breaks = nsbrks, labels = nslbls, expand = c(0, 0)) +
     theme_bw() + theme(panel.background=element_rect(fill="white",colour="black")) 
   
-  return(RI)}
+  ggsave( paste0('monthly_out/',crop,'/correlations/', names(.x), '.png'), width = 8, height = 3.5)
+  writeRaster(x = RI, filename = paste0('monthly_out/',crop,'/correlations/', names(.x), '.tif'))
+  
+  
+  
+  (RI > 0.5) %>% 
+    rasterVis::gplot(.) + 
+    geom_tile(aes(fill = value)) + 
+    u + 
+    coord_equal() +
+    labs(x="Longitude",y="Latitude", fill = " ")   +
+    scale_fill_distiller(palette =  "Blues", na.value="white", direction = 1) + 
+    scale_x_continuous(breaks = ewbrks, labels = ewlbls, expand = c(0, 0)) +
+    scale_y_continuous(breaks = nsbrks, labels = nslbls, expand = c(0, 0)) +
+    theme_bw() + theme(panel.background=element_rect(fill="white",colour="black"), legend.position = 'none') 
+  
+  ggsave( paste0('monthly_out/',crop,'/correlations/abs_', names(.x), '.png'), width = 8, height = 3.5)
+  
+  
+  RI.i <- length(which(abs(RI[]) > 0.5)) / length(na.omit(RI[])) * 100
+  
+  return(RI.i)}
 
 
+
+
+.x <- all_inf$c.cv.prec
+.y <- all_inf$gap
+
+
+all_inf %>%
+  names %>% 
+  as.tibble() %>% 
+  slice(-n()) %>% 
+  mutate(pixelC =  )
+
+mutate()
 
 
 
