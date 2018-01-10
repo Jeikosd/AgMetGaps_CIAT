@@ -1,7 +1,8 @@
 ##################################################################
-##########                    Packages                  ########## 
+#######   Making crop calendar analysis (floration)       ######## 
 ##################################################################
 
+# Libraries
 
 library(raster)
 library(ncdf4)
@@ -19,13 +20,14 @@ library(chron)
 library(geoR)
 
 
-# tibbletime
+#####
 
 
-setwd('/mnt/workspace_cluster_9/AgMetGaps')
+# setwd('/mnt/workspace_cluster_9/AgMetGaps')
 
+path <- "/mnt/workspace_cluster_9/AgMetGaps/Inputs/05-Crop Calendar Sacks/"
 crop <- 'rice' # rice , maize , wheat
-
+crop_type <- 'Rice.crop.calendar.nc' # rice , maize , wheat
 
 ## Proof for rice information 
 
@@ -40,7 +42,7 @@ crop <- 'rice' # rice , maize , wheat
 # D:/Agpurrr::maps/planting_dates/calendar/
 
 
-pdate <- raster(paste0('Inputs/05-Crop Calendar Sacks/', 'Rice.crop.calendar.nc'), varname = 'plant') %>% 
+pdate <- raster(paste0(path, crop_type), varname = 'plant') %>% 
   crop(extent(-180, 180, -50, 50)) 
 
 
@@ -50,7 +52,7 @@ pdate_points <- rasterToPoints(pdate) %>%
   mutate(Planting =  month.day.year(julian.start)$month)
 
 
-hdate <- raster(paste0('Inputs/05-Crop Calendar Sacks/', 'Rice.crop.calendar.nc'), varname = 'harvest') %>% 
+hdate <- raster(paste0(path, crop_type), varname = 'harvest') %>% 
   crop(extent(-180, 180, -50, 50)) 
 
 hdate_points <- rasterToPoints(hdate) %>%
@@ -62,15 +64,17 @@ hdate_points <- rasterToPoints(hdate) %>%
 
 # Compute floration trimester
 compute_flor <- function(.x, .y){
+  
   if(.x < .y){
     flor <- round(.x + (.y - .x)/2 , 0)
   } else if(.x > .y){
     flor <- round(.x +  ( (12 - .x) + .y)/2 , 0)
   }
   
-  if(flor>12){flor <- flor - 12} else if( flor <= 12){flor <- flor}
+  if(flor> 12){flor <- flor - 12} else if( flor <= 12){flor <- flor}
   
-  return(flor)}
+  return(flor)
+  }
 
 
 
@@ -84,7 +88,6 @@ month_below <- function(.x){
 month_above <- function(.x){
   if(.x < 12) { above <- .x + 1} else if(.x  == 12){ above <- 1 }
   return(above)}
-
 
 
 
@@ -110,13 +113,10 @@ crop.time <- inner_join(pdate_points, hdate_points) %>%
 
 
 
-
-
-
 ##################################################################
 ##########      Functions to perform read raster,       ##########
 ##########    convert to velox objects, extract points, ##########
-##########      convert to raster if is necessary.      ########## 
+##########      convert to raster if it is necessary.   ########## 
 ##################################################################
 
 
@@ -153,13 +153,6 @@ extract_velox <- function(velox_Object, points){
 # To use the spatial polygons information in the velox strack to points 
 
 sp_pdate <- rasterToPolygons(pdate,  dissolve = F) 
-
-##############################
-##############################
-
-
-
-
 
 
 ##################################################################
@@ -203,6 +196,7 @@ system.time(
 
 
 #### Extract points
+
 # plan(multisession, workers = availableCores() - 4)
 
 system.time(  
@@ -244,13 +238,7 @@ planting <- crop.time %>%
   ungroup()
 
 
-
-
-
-
-
-
-### This function extract for each pixel the chirps information 
+### This function extract for each pixel the chirps information (precipitation)
 ### i represents the exactly pixel 
 
 make_station <- function(x, file_name){
@@ -274,18 +262,20 @@ point_extract <- function(x, y){
   
   proof <-  x  %>%
     inner_join(y , ., by = c('id', 'month')) %>%
-    select(-lat.y, -long.y) %>%
+    dplyr::select(-lat.y, -long.y) %>%
     group_by(phase, year, lat.x, long.x) %>%
     rename(lat = lat.x, long = long.x, precip =  values) %>% 
     summarise(prec_clim = sum(precip)) %>%
     ungroup()
   
-  return(proof)}
+  return(proof)
+  
+  }
 
-extract_months <- function( dates, atelier, out1, name){
+extract_months <- function(dates, atelier, out1, name){
   
   folder <- atelier %>% 
-    select(phase) %>% 
+    dplyr::select(phase) %>% 
     filter(row_number() == 1) %>% 
     as.character
   
@@ -309,9 +299,9 @@ extract_months <- function( dates, atelier, out1, name){
 
 calendar <- crop.time 
 
-out1 <- paste0('/mnt/workspace_cluster_9/AgMetGaps/monthly_out/',crop,'/precip/')
-name <- paste0(crop,'_precip')
-
+out1 <- paste0('/mnt/workspace_cluster_9/AgMetGaps/monthly_out/', crop,'/precip/')
+name <- paste0(crop, '_precip')
+ 
 
 
 
@@ -323,10 +313,6 @@ id_creation <- function(.x){
     mutate(id = 1:length(type)) %>%
     ungroup() 
 }
-
-
-
-
 
 
 system.time(
@@ -343,14 +329,11 @@ system.time(
 # user   system  elapsed 
 # 3308.409   71.275 3903.678 
 
-
-
-
 climatology <- function(test, out1){
   
   # creation to the climatology
   prec_chirps <- test %>%  
-    select(i, each_Pclim) %>% 
+    dplyr::select(i, each_Pclim) %>% 
     unnest %>%
     group_by(i, lat,  long, phase) %>%
     summarise(climatology_prec = mean(prec_clim), sd.prec = sd(prec_clim)) %>%
@@ -374,6 +357,12 @@ raining <- idea %>%
 
 
 # for default rasterize with 'pdate'. 
+# agregar un parametro que se llame out_path para guardar la informacion
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
+
 rasterize_mod <- function(x, raster, var){
   
   points <- x %>%
@@ -381,7 +370,7 @@ rasterize_mod <- function(x, raster, var){
     data.frame 
   
   vals <- x %>%
-    select(!!var) %>%
+    dplyr::select(!!var) %>%
     magrittr::extract2(1)
   
   y <- rasterize(points, raster, vals, fun = sum)
@@ -389,7 +378,8 @@ rasterize_mod <- function(x, raster, var){
   ### Lectura del shp
   shp <- shapefile(paste("/mnt/workspace_cluster_9/AgMetGaps/Inputs/shp/mapa_mundi.shp",sep="")) %>% 
     crop(extent(-180, 180, -50, 50))
-  u<-borders(shp, colour="black")
+  
+  u <- borders(shp, colour="black")
   
   
   myPalette <-  colorRampPalette(c("navyblue","#2166AC", "dodgerblue3","lightblue", "lightcyan",  "white",  "yellow","orange", "orangered","#B2182B", "red4"))
@@ -437,21 +427,6 @@ rasters_raining <- raining %>%
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 ##################################################################
 ##########     Mean Temperature: NCEP CPC GHCN_CAMS     ########## 
 ##################################################################
@@ -465,7 +440,7 @@ rasters_raining <- raining %>%
 # read a one raster to GHCN_CAMS
 
 
-  raster_mod_temp <- function(.x, .y){
+raster_mod_temp <- function(.x, .y){
     raster(.x, band = .y) %>% 
     rotate
  }
@@ -516,14 +491,12 @@ GHCN_CAMS <-   str_extract(nc_open(paste0('Chips_Monthly/', 'chirps-v2.0.monthly
 
 
 
-
-
 ###### Creation for the temperatures seasonals and climatologies 
 
 point_temp <-  GHCN_CAMS %>% 
   select( year, month, points) %>% 
   unnest %>% 
-  mutate(valuesC= values - 273.15) %>%
+  mutate(valuesC = values - 273.15) %>%
   group_by(lat, long) %>%
   nest() %>%
   mutate(id = 1:nrow(.))
@@ -556,7 +529,7 @@ point_extractT <- function(x, y){
   
   proof <-  x  %>%
     inner_join(y , ., by = c('id', 'month')) %>%
-    select(-lat.y, -long.y) %>%
+    dplyr::select(-lat.y, -long.y) %>%
     group_by(phase, year, lat.x, long.x) %>%
     rename(lat = lat.x, long = long.x, tempk =  values, tempC = valuesC) %>% 
     summarise(Temp_clim = mean(tempC), Temp_k = mean(tempk)) %>%
@@ -580,7 +553,7 @@ extract_monthsT <- function( dates, atelier, out1, name){
   
   file_name <- paste0( out, name2 )
   
-  ### Is necessary parallelize the process?
+  ### Is it necessary parallelize the process?
   test <- dates %>% 
     mutate(i = 1:nrow(.)) %>%
     nest(-i) %>% 
@@ -591,6 +564,8 @@ extract_monthsT <- function( dates, atelier, out1, name){
 
 
 
+
+############
 
 
 out2 <-  '/mnt/workspace_cluster_9/AgMetGaps/monthly_out/rice/temp/'
@@ -640,9 +615,9 @@ climatologyT <- function(test, out1){
 
 idea_temp %>%
   filter(row_number() < 2) %>% 
-  select(ext.months) %>%
+  dplyr::select(ext.months) %>%
   unnest %>%
-  select(i, each_Pclim) %>% 
+  dplyr::select(i, each_Pclim) %>% 
   unnest 
 
 
@@ -651,7 +626,7 @@ idea_temp %>%
 
 temperature <- idea_temp %>%
   mutate(climaT =  purrr::map(.x = ext.months, .f = climatologyT, out1 = out2)) %>%
-  select(control, climaT)
+  dplyr::select(control, climaT)
 
 
 
@@ -662,11 +637,11 @@ temperature <- idea_temp %>%
 rasterize_modT <- function(x, raster, var){
   
   points <- x %>%
-    select(long, lat) %>%
+    dplyr::select(long, lat) %>%
     data.frame 
   
   vals <- x %>%
-    select(!!var) %>%
+    dplyr::select(!!var) %>%
     magrittr::extract2(1)
   
   y <- rasterize(points, raster, vals, fun = sum)
@@ -772,11 +747,11 @@ change_names <- function(.x, .y){
     as.character()
   
   all <- .x %>% 
-    select(-phase) %>%
+    dplyr::select(-phase) %>%
     names
   
   final <- .x %>% 
-    select(-phase) %>%
+    dplyr::select(-phase) %>%
     set_names(., paste0(name, '.', all))  %>% 
     rename(i = !!paste0(name, '.', all[1]), 
            lat = !!paste0(name, '.', all[2]), 
@@ -787,7 +762,7 @@ change_names <- function(.x, .y){
 
 I.Temp <- temperature %>% 
   mutate(clima =  purrr::map2(.x = climaT, .y = control, .f = change_names)) %>%
-  select(clima) %>% 
+  dplyr::select(clima) %>% 
   split(., f = c('a', 'b', 'c')) %>%
   lapply(., unnest) %>%
   reduce(inner_join)
@@ -795,7 +770,7 @@ I.Temp <- temperature %>%
 
 I.Prec <- raining %>% 
   mutate(climate =  purrr::map2(.x = clima, .y = control, .f = change_names)) %>%
-  select(climate)  %>% 
+  dplyr::select(climate)  %>% 
   split(., f = c('a', 'b', 'c')) %>%
   lapply(., unnest) %>%
   reduce(inner_join)
@@ -837,7 +812,7 @@ var1 <- var[1]
 
 all_variograms <- function(var, tbl){
   
-  geo_gap <- tbl %>% select(long, lat, !!var) %>% as.geodata()
+  geo_gap <- tbl %>% dplyr::select(long, lat, !!var) %>% as.geodata()
   
   
   # binned variogram
@@ -889,12 +864,12 @@ var <- 'gap'
 
 rasterize_masa <-  function(var, x, raster){
   points <- COB1 %>%
-    select(long, lat) %>%
+    dplyr::select(long, lat) %>%
     data.frame 
   
   
   vals <- COB1 %>%
-    select(!!var) %>%
+    dplyr::select(!!var) %>%
     magrittr::extract2(1)
   
   y <- rasterize(points, raster, vals, fun = sum)
@@ -932,13 +907,9 @@ all_inf <- COB1 %>%
 # x = cualquier otro raster 
 
 
-.x <- all_inf$b.cv.prec
-.y <- all_inf$gap
-
-correlations_exp <- function(.x, .y){
+correlations_exp <- function(.x, .y, all_inf){
   
-  
-  idea <- stack(.x,.y)
+  idea <- stack( all_inf[[which(all_inf %>% names == .x )]], all_inf[[which(all_inf %>% names == .y )]])
   RI <- corLocal(idea[[1]], idea[[2]], ngb=5,   method = "pearson" )  
   
   RI %>% 
@@ -952,8 +923,8 @@ correlations_exp <- function(.x, .y){
     scale_y_continuous(breaks = nsbrks, labels = nslbls, expand = c(0, 0)) +
     theme_bw() + theme(panel.background=element_rect(fill="white",colour="black")) 
   
-  ggsave( paste0('monthly_out/',crop,'/correlations/', names(.x), '.png'), width = 8, height = 3.5)
-  writeRaster(x = RI, filename = paste0('monthly_out/',crop,'/correlations/', names(.x), '.tif'))
+  ggsave( paste0('monthly_out/',crop,'/correlations/', .x, '_', .y, '.png'), width = 8, height = 3.5)
+  writeRaster(x = RI, filename = paste0('monthly_out/',crop,'/correlations/', .x,'_', .y, '.tif'))
   
   
   
@@ -968,30 +939,75 @@ correlations_exp <- function(.x, .y){
     scale_y_continuous(breaks = nsbrks, labels = nslbls, expand = c(0, 0)) +
     theme_bw() + theme(panel.background=element_rect(fill="white",colour="black"), legend.position = 'none') 
   
-  ggsave( paste0('monthly_out/',crop,'/correlations/abs_', names(.x), '.png'), width = 8, height = 3.5)
+  ggsave( paste0('monthly_out/',crop,'/correlations/abs_', .x,'_', .y, '.png'), width = 8, height = 3.5)
   
   
   RI.i <- length(which(abs(RI[]) > 0.5)) / length(na.omit(RI[])) * 100
   
   return(RI.i)}
 
-
-
-
-.x <- all_inf$c.cv.prec
-.y <- all_inf$gap
-
-
-all_inf %>%
+df <- all_inf %>%
   names %>% 
   as.tibble() %>% 
   slice(-n()) %>% 
-  mutate(pixelC =  )
-
-mutate()
+  mutate(pixelC =  purrr::map(.x = value, .f = correlations_exp ,.y = 'gap', all_inf = all_inf))
 
 
 
+df %>% unnest
+
+
+
+abs_C <- list.files(path = paste0('monthly_out/',crop,'/correlations/'), pattern = 'tif', full.names = TRUE) %>% 
+  stack %>% 
+  abs() 
+
+
+abs_C1 <- (abs_C > 0.5) %>%
+  sum 
+
+
+
+abs_C1 %>% 
+  rasterVis::gplot(.) + 
+  geom_tile(aes(fill = value)) + 
+  u + 
+  coord_equal() +
+  labs(x="Longitude",y="Latitude", fill = " ")   +
+  scale_fill_distiller(palette =  "Spectral", na.value="white") + 
+  scale_x_continuous(breaks = ewbrks, labels = ewlbls, expand = c(0, 0)) +
+  scale_y_continuous(breaks = nsbrks, labels = nslbls, expand = c(0, 0)) +
+  theme_bw() + theme(panel.background=element_rect(fill="white",colour="black")) 
+
+
+
+
+
+
+(abs_C1 > 10) %>% 
+  rasterVis::gplot(.) + 
+  geom_tile(aes(fill = value)) + 
+  u + 
+  coord_equal() +
+  labs(x="Longitude",y="Latitude", fill = " ")   +
+  scale_fill_distiller(palette =  "Spectral", na.value="white") + 
+  scale_x_continuous(breaks = ewbrks, labels = ewlbls, expand = c(0, 0)) +
+  scale_y_continuous(breaks = nsbrks, labels = nslbls, expand = c(0, 0)) +
+  theme_bw() + theme(panel.background=element_rect(fill="white",colour="black")) 
+
+
+
+
+
+
+
+
+#### only evaluate the cv correlation with the yield_gap
+
+
+
+list.files(path = paste0('monthly_out/',crop,'/correlations'), pattern =  glob2rx('*cv*.tif*') , full.names = TRUE)
+#  glob2rx('*cv*.tif*') == "^.*cv.*\\.tif"
 
 
 
