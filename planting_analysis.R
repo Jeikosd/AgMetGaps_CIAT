@@ -1011,3 +1011,96 @@ list.files(path = paste0('monthly_out/',crop,'/correlations'), pattern =  glob2r
 
 
 
+read.csv("monthly_out/rice/summary.csv") %>% 
+  .[-(1:3)] %>%
+  cor() %>% 
+  write.csv(file = "monthly_out/rice/cor.csv")
+
+
+
+read.csv("monthly_out/rice/summary.csv") %>% 
+  .[-(1:3)] %>%
+  cor(method = 'spearman') %>% 
+  write.csv(file = "monthly_out/rice/cor_S.csv")
+
+
+
+
+read.csv("monthly_out/rice/summary.csv") %>% 
+  .[-(1:3)] %>%
+  cor(method = 'kendall') %>% 
+  write.csv(file = "monthly_out/rice/cor_k.csv")
+
+###############################################################################
+
+read.csv("monthly_out/rice/summary.csv") %>% 
+  .[-(1:3)] %>% 
+  plot
+
+
+
+
+
+
+##########
+
+proof <- read.csv("monthly_out/rice/summary.csv") %>% 
+  .[-(1:3)]
+
+
+
+plot(proof$a.cv.prec,y = proof$gap, pch = 19, col = 'red')
+
+
+.x <- 'a.cv.temp'
+.y <- 'gap'
+
+
+
+
+scatter_graphs <- function(.x, .y, proof){
+  
+  proof %>%  
+    ggplot2::ggplot(., aes(x =  proof[,.x],y = proof[,.y])) + 
+    geom_point(alpha=2/10, shape=21, fill="blue", colour="black", size=2) +
+    geom_smooth(method = "lm", se = FALSE) +
+    labs(x= .x, y = .y, title = 'Correlation',
+         subtitle = paste0('Pearson = ', round(cor(proof[,.x], proof[,.y]),3), '    -   Spearman = ', round(cor(proof[,.x], proof[,.y], method = 'spearman'),3))) + 
+    theme_bw() 
+  
+  ggsave(filename = paste0(.x, '_', .y, '.png'))
+}
+
+
+
+
+proof %>% 
+  names %>%
+  as.tibble() %>%
+  slice(-n()) %>%
+  
+  
+  
+  
+  purrr::map(.x = value, .f = scatter_graphs, .y = gap, proof = proof)
+
+scatter_graphs
+
+
+
+##############################################################################
+########### Tengo el harvest y los rendimientos potenciales... 
+########### deberia evaluar si estan correlacionados o no? --- se van a realizar pruebas la proxima semana
+########### 
+
+
+
+
+
+
+
+
+
+
+
+
