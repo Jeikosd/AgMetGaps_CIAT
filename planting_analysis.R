@@ -1048,15 +1048,85 @@ proof <- read.csv("monthly_out/rice/summary.csv") %>%
   .[-(1:3)]
 
 
+scatter_graphs <- function(.x, .y, proof){
+  
+  proof %>%  
+    ggplot2::ggplot(., aes(x =  proof[,.x],y = proof[,.y])) + 
+    geom_point(alpha=2/10, shape=21, fill="blue", colour="black", size=2) +
+    geom_smooth(method = "lm", se = FALSE) +
+    labs(x= .x, y = .y, title = 'Correlation',
+         subtitle = paste0('Pearson = ', round(cor(proof[,.x], proof[,.y]),3), '    -   Spearman = ', round(cor(proof[,.x], proof[,.y], method = 'spearman'),3))) + 
+    theme_bw() 
+  
+  ggsave(filename = paste0('monthly_out/',crop,'/dispersion/', .x, '_', .y, '.png'))
+}
 
-plot(proof$a.cv.prec,y = proof$gap, pch = 19, col = 'red')
 
 
-.x <- 'a.cv.temp'
-.y <- 'gap'
+proof %>% 
+  names %>%
+  as.tibble() %>%
+  slice(-n()) %>%
+  mutate(test = purrr::map(.x = value, .f = scatter_graphs, .y = 'gap', proof = proof))
 
 
 
+
+
+
+###################################################################################
+########## Test for ACP (explonatory analysis). Initialy is only for verification.  
+
+
+
+Yield.P <- list.files(path = 'Inputs/Yield_Gaps_ClimateBins/rice_yieldgap_netcdf/', 
+                      pattern = 'YieldPotential.nc', full.names = TRUE) %>%
+  as.tibble %>% 
+  mutate(load_raster = purrr::map(.x = value, .f = function(.x){ 
+    raster(.x) %>%  crop(extent(-180, 180, -50, 50))})) %>%
+  mutate(raster_df =  purrr::map(.x = load_raster, .f = velox::velox) ) 
+
+
+
+coords <- coordinates(sp_pdate) %>%
+  tbl_df() %>%
+  rename(lat = V1, long = V2)
+
+
+Yield.P$raster_df
+
+test <- Yield.P$raster_df[[1]]$extract(sp_pdate, fun = function(x){ 
+  mean(x, na.rm = T)}) %>%
+  tbl_df() %>%
+  rename(potential = V1) %>%
+  bind_cols(coords) %>%
+  mutate(i = 1:nrow(.)) %>%
+  dplyr::select(i, lat, long, potential)
+
+
+test[which(test$potential[] == 'NaN'), 4] <- NA
+test
+
+
+Climate <- read.csv("monthly_out/rice/summary.csv") 
+OB1 <- inner_join(Climate, test %>% select(-lat, -long), by = 'i')
+
+
+
+cor(OB1$gap, OB1$potential )
+
+
+
+cor(OB1)
+
+OB1 %>% select(-i, -lat, -long) %>% cor %>% write.csv('potential.csv')
+
+OB1 %>% select(-i, -lat, -long) %>% cor(method = 'spearman') %>% write.csv('potential_S.csv')
+
+
+
+
+#### Temporal function to modificate 
 
 scatter_graphs <- function(.x, .y, proof){
   
@@ -1068,23 +1138,79 @@ scatter_graphs <- function(.x, .y, proof){
          subtitle = paste0('Pearson = ', round(cor(proof[,.x], proof[,.y]),3), '    -   Spearman = ', round(cor(proof[,.x], proof[,.y], method = 'spearman'),3))) + 
     theme_bw() 
   
-  ggsave(filename = paste0(.x, '_', .y, '.png'))
+  ggsave(filename = paste0('monthly_out/rice/',.x, '_', .y, '.png'))
 }
 
 
 
 
-proof %>% 
-  names %>%
-  as.tibble() %>%
-  slice(-n()) %>%
-  
-  
-  
-  
-  purrr::map(.x = value, .f = scatter_graphs, .y = gap, proof = proof)
 
-scatter_graphs
+OB1 %>% 
+  names %>% 
+  as.tibble() %>% 
+  slice(-n()) %>%
+  mutate(test = purrr::map(.x = value, .f = scatter_graphs, .y = 'potential', proof = OB1))
+
+
+
+
+
+
+OB1 %>% 
+  select(a.cv.prec,b.cv.prec, c.cv.prec, a.cv.temp,b.cv.temp,c.cv.temp, gap, potential) %>% 
+  cor  
+
+
+
+
+
+################# Revisar dos cosas más... 1. mapa de correlaciones - 2. ACP con mapa de pesos...  
+
+
+
+
+### How make a spatial ACP in r 
+library(FactoMineR)
+
+#  i    lat  long 
+#res.pca <- OB1 %>% select( -i, -lat, -long ) %>% PCA()
+
+
+OB1 %>% 
+  select( -i, -lat, -long, -a.cv.prec, -b.cv.prec, -c.cv.prec,
+          -a.cv.temp, -b.cv.temp, -c.cv.temp) %>%
+  PCA()
+
+# 
+
+res.pca <- OB1 %>% 
+  select(a.cv.prec,b.cv.prec, c.cv.prec, a.cv.temp,b.cv.temp,c.cv.temp, gap, potential) %>% 
+  PCA()
+## plot of the eigenvalues
+barplot(res.pca$eig[,1],main="Eigenvalues",names.arg=1:nrow(res.pca$eig))
+summary(res.pca)
+dimdesc(res.pca, axes = 1:2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
