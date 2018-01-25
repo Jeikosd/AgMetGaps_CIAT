@@ -424,3 +424,140 @@ for (i in 1:10000) {
 }
 v <- values(f)
 
+
+
+
+
+
+
+
+###
+## code to make time series climate from chirps for each point in the calendar polygons
+
+library(lubridate)
+library(tidyverse)
+library(raster)
+library(future)
+library(velox)
+library(sf)
+library(tictoc)
+
+chirps_path <- '/mnt/data_cluster_4/observed/gridded_products/chirps/daily/'
+chirps_file <- list.files(chirps_path, pattern = '.tif$', full.names = T)
+points_path <- '/mnt/workspace_cluster_9/AgMetGaps/weather_analysis/spatial_points/Maize'
+points_file <- list.files(points_path, pattern = '.geojson$', full.names = T)
+out_file <- '/mnt/workspace_cluster_9/AgMetGaps/weather_analysis/precipitation_points/daily_chirps_csv/'
+
+
+geo_files <- sf::st_read(dsn = points_file) 
+
+
+raster_files <- chirps_file %>%
+  data_frame(file = .) %>%
+  mutate(date = purrr::map(.x = file, .f = extract_date)) %>%
+  tidyr::unnest() %>%
+  mutate(year = lubridate::year(date),
+         month = lubridate::month(date),
+         day = lubridate::day(date))
+
+# x <- raster_files %>%
+#   filter(year <= 1982) 
+
+
+x <- raster_files %>%
+  # filter(year <= 1981, month == 1) %>%
+  filter(year <= 2016) %>%
+  pull(file)
+
+
+# x <- x %>%
+#   base::split(.$year, drop = TRUE) %>%
+#   purrr::map(.f = filter, month == 1) %>%
+#   purrr::map(.f = pull, file)
+
+
+# p <- sf::st_read(dsn = points_file)
+
+
+## cargar los puntos que se van a utilizar para extraer
+
+
+local_cpu <- rep("localhost", availableCores() - 1)
+# external_cpu <- rep("caribe.ciat.cgiar.org", 8)  # server donde trabaja Alejandra
+external_cpu <- rep("climate.ciat.cgiar.org", each = 10)
+
+workers <- c(local_cpu, external_cpu)
+
+# plan(multisession, workers = 10)
+plan(cluster, workers = workers)
+
+# plan(list(tweak(cluster, workers = workers), multicore))
+options(future.globals.maxSize= 891289600)
+extract_chirps <- listenv::listenv()
+tic("extract the chirps information")
+extract_chirps <- future::future_lapply(x, FUN = extract_velox, points = geo_files, out_file) 
+toc()
+
+
+# strategy <- "future::multisession"
+
+
+
+
+mean_point <- function(x){
+  
+  x[x<0] <- NA
+  mean(x, na.rm = T)
+  
+}
+
+
+extract_velox <- function(file, points, out_file){
+  
+  file <- x[1:2000]
+  # points <- geo_files
+  
+  tic('unparalelized stack')
+  stk <- purrr::map(.x = file, .f = raster) %>%
+    raster::stack()
+  toc()
+  
+  ## paralelizar esta parte
+  plan(multisession)
+  tic('parallel stack')
+  stk <- purrr::map(.x = file, .f = ~future(raster(.x))) %>%
+    future::values() %>%
+    raster::stack()
+  toc()
+  
+  vx_raster <- velox::velox(stk)
+  
+  
+  # coords <- sp::coordinates(points) %>%
+  #   tbl_df() %>%
+  #   dplyr::rename(lat = V1, 
+  #                 long = V2)
+  
+  
+  # 
+  date_raster <- purrr::map(.x = file, .f = extract_date) %>%
+    purrr::map(.x = ., .f = as_tibble) %>%
+    bind_rows() %>%
+    pull()
+  mutate(id = as_factor(paste0('day_', 1:nrow(.)))) %>%
+    tidyr::spread(id, value) %>%
+    
+    
+    
+    values <- vx_raster$extract(points, fun = mean_point) %>%
+    tbl_df() %>%
+    purrr::set_names(date_raster)
+  
+  column_names <- dplyr::tbl_vars(values) 
+  
+  write_csv(values, path = paste0(out_file, daily_day, '.csv'))
+  
+  return(values)
+}
+
+
