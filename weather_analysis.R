@@ -186,26 +186,45 @@ library(future)
 library(fst)
 library(dplyr)
 library(tictoc)
+library(data.table)
 
 
 path <- '/mnt/workspace_cluster_9/AgMetGaps/weather_analysis/precipitation_points/daily_chirps_csv/'
 fst_files <- list.files(path = path, full.names = TRUE, pattern = '*.fst$')
-csv_files <- list.files(path = path, full.names = TRUE, pattern = '*.csv$')
-n_pixel <- read.fst(fst_files[1]) %>%
-  dim() %>%
-  magrittr::extract(1)
+# csv_files <- list.files(path = path, full.names = TRUE, pattern = '*.csv$')
+# n_pixel <- read.fst(fst_files[1]) %>%
+  # dim() %>%
+  # magrittr::extract(1)
  
-seq_pixel <- 1:n_pixel
+# seq_pixel <- 1:n_pixel
 
 
 options(future.globals.maxSize = 3191289600) 
 
 
 local_cpu <- rep("localhost", availableCores() - 2)
-# plan(cluster, workers = local_cpu)
-plan(multisession, workers = length(local_cpu))
+external_cpu <- c(rep("climate.ciat.cgiar.org", each = 7))
+workers <- c(local_cpu, external_cpu)
+plan(cluster, workers = workers )
+# plan(multisession, workers = length(local_cpu))
 
 x <- future::future_lapply(x = fst_files, FUN = fst::read.fst, as.data.table = TRUE)
+
+tic("future lapply weather station chirps")
+y <- future::future_lapply(x = x, FUN = fst_pixel, pixel = 1)  # 1.4 minutos teniendo cargado la informacion
+toc()
+
+tic("weather station chirps")
+map(.x = x, .f = fst_pixel, pixel = 1) # 0.2 muinutos mas rapido que en paralelo
+toc()
+
+
+
+tic("weather station chirps")
+map(.x = x, .f = ~future(fst_pixel(x = .x, pixel = 1))) %>%   ## funcion muy lenta
+  values()
+toc()
+
 
 
 
@@ -431,6 +450,7 @@ v <- values(f)
 
 
 
+<<<<<<< HEAD
 ###
 ## code to make time series climate from chirps for each point in the calendar polygons
 
@@ -561,3 +581,60 @@ extract_velox <- function(file, points, out_file){
 }
 
 
+=======
+
+
+
+fst_files <- list.files(path = path, full.names = TRUE, pattern = '*.fst$')
+out_path <- '/mnt/workspace_cluster_9/AgMetGaps/weather_analysis/precipitation_points/weather_stations/'
+
+fst_pixel <- function(path, pixel){
+  
+  fst::read.fst(path, from = pixel, to = pixel, as.data.table = TRUE)
+  
+}
+
+make_Wstation <- function(pixel, path, out_path){
+  
+  station <- purrr::map(.x = path, .f = fst_pixel, pixel) %>%
+    bind_rows()
+  
+  fst::write.fst(station, paste0(out_path, 'daily_pixel_', pixel, ".fst"))
+  rm(station)
+  gc()
+  
+}
+
+
+# tic("future lapply weather station chirps")
+# y <- future::future_lapply(x = 1:100, FUN = make_Wstation, fst_files[1:1000])  # esta es rapido
+# toc()
+
+
+tic("future lapply weather station chirps")
+extract_Wstation(fst_files, out_path)
+toc()
+
+num_pixel <- fst::read.fst(fst_files[1]) %>%
+  dim() %>%
+  magrittr::extract(1)
+
+tic("future lapply weather station chirps")
+future::future_lapply(x = 1:num_pixel, FUN = make_Wstation, fst_files, out_path) 
+toc()
+extract_Wstation <- function(path, out_path){
+  
+  num_pixel <- fst::read.fst(path[1]) %>%
+    dim() %>%
+    magrittr::extract(1)
+  
+  future::future_lapply(x = 1:num_pixel, FUN = make_Wstation, path, out_path) 
+  # strategy <- "future::multisession"
+  
+  
+  
+}
+
+
+
+>>>>>>> c8922aa8b37c228347b5449e236e27c40e8f1dac

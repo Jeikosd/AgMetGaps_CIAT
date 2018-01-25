@@ -2,6 +2,7 @@
 #######   Making crop calendar analysis (floration)       ######## 
 ##################################################################
 
+
 # Libraries
 
 library(raster)
@@ -216,10 +217,6 @@ system.time(
 # month and important points
 
 
-##### Understand the jeison's scrip
-
-
-
 point_dates <-  dates_raster %>% 
   select( year, month, points) %>% 
   unnest %>% 
@@ -316,18 +313,27 @@ id_creation <- function(.x){
 
 
 system.time(
-  idea <- crop.time %>% 
+  idea_precipitation <- crop.time %>% 
     rename(long = x,  lat  =  y) %>%
     mutate(control =  phase)  %>% 
     nest(-control) %>% 
     mutate(id_data = purrr::map(.x = data, .f = id_creation)) %>% 
     select(control, id_data) %>% 
     mutate(ext.months = purrr::map(.x = id_data,  .f = extract_months, dates = point_dates, 
-                                   out = out1, name = name1 ) )
+                                   out = out1, name = name ) )
 )
 
 # user   system  elapsed 
 # 3308.409   71.275 3903.678 
+
+
+
+
+
+###### No borrar nunca el vector idea... pues contiene la informacion climatica 
+##### entonces con el se pueden realizar otro tipo de calculos
+
+
 
 climatology <- function(test, out1){
   
@@ -349,7 +355,7 @@ climatology <- function(test, out1){
 
 
 
-raining <- idea %>%
+raining <- idea_precipitation %>%
   mutate(clima =  purrr::map(.x = ext.months, .f = climatology, out1 = out1)) %>%
   select(control, clima)
 
@@ -357,11 +363,17 @@ raining <- idea %>%
 
 
 # for default rasterize with 'pdate'. 
-# agregar un parametro que se llame out_path para guardar la informacion
+# add out_path parameter to save the information
+
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
+
+
+out_path <- '/mnt/workspace_cluster_9/AgMetGaps/monthly_out/'
+
+
 
 rasterize_mod <- function(x, raster, var){
   
@@ -405,11 +417,9 @@ rasterize_mod <- function(x, raster, var){
   
   
   temp <- x %>% select(phase) %>% .[1,] %>% as.character
-  file_name <- paste0('/mnt/workspace_cluster_9/AgMetGaps/monthly_out/', crop, '/precip/graphs_rasters/', temp, '.', var)
+  file_name <- paste0(out_path , crop, '/precip/graphs_rasters/', temp, '.', var)
   ggsave(paste0( file_name, '.png'), width = 10, height = 4)
   writeRaster(y,  paste0( file_name, '.tif'))
-  
-  ### Write in GeoJeison format 
   
   return(y)}
 
@@ -432,11 +442,6 @@ rasters_raining <- raining %>%
 ##################################################################
 
 
-
-
-# for this variable is necesary create a diferent 
-
-# temporaly 
 # read a one raster to GHCN_CAMS
 
 
@@ -462,7 +467,6 @@ raster_mod_temp <- function(.x, .y){
   
   
 
-# 'D:/Agpurrr::maps/GHCN_CAMS/'
 ## asignar la banda a que Año y mes pertenecen
 n_bands <- nc_open(paste0('Inputs/GHCN_CAMS/', 'data.nc'))$dim$T$len
 n_bands <- 36*12 # temporal 1981 to 2016
@@ -601,7 +605,7 @@ climatologyT <- function(test, out1){
     select(i, each_Pclim) %>% 
     unnest %>%
     group_by(i, lat,  long, phase) %>%
-    summarise(climatology_temp = mean(Temp_clim), sd.temp = sd(Temp_clim)) %>%
+    summarise(climatology_temp = mean(Temp_k), sd.temp = sd(Temp_k)) %>%
     mutate(cv.temp = (sd.temp/climatology_temp) * 100) %>% 
     ungroup
   
@@ -709,11 +713,29 @@ Yield.G <- list.files(path = 'Inputs/Yield_Gaps_ClimateBins/rice_yieldgap_netcdf
 
 
 
+list.files(path = 'Inputs/Yield_Gaps_ClimateBins/rice_yieldgap_netcdf/', 
+           pattern = 'YieldGap.nc', full.names = TRUE) %>% raster %>% 
+  crop(extent(-180, 180, -50, 50))  %>% 
+  rasterVis::gplot(.) + 
+  geom_tile(aes(fill = value)) + 
+  u + 
+  coord_equal() +
+  labs(x="Longitude",y="Latitude", fill = " ")   +
+  scale_fill_gradientn(colours =Blues(100), na.value="white") +
+  scale_x_continuous(breaks = ewbrks, labels = ewlbls, expand = c(0, 0)) +
+  scale_y_continuous(breaks = nsbrks, labels = nslbls, expand = c(0, 0)) +
+  theme_bw() + theme(panel.background=element_rect(fill="white",colour="black")) 
+
+
+
+
 coords <- coordinates(sp_pdate) %>%
   tbl_df() %>%
   rename(lat = V1, long = V2)
 
-test <- Yield.G$raster_df[[1]]$extract(sp_pdate, fun = function(x){ 
+
+
+test_yield <- Yield.G$raster_df[[1]]$extract(sp_pdate, fun = function(x){ 
   mean(x, na.rm = T)}) %>%
   tbl_df() %>%
   rename(gap = V1) %>%
@@ -722,11 +744,8 @@ test <- Yield.G$raster_df[[1]]$extract(sp_pdate, fun = function(x){
   dplyr::select(i, lat, long, gap)
 
 
-test[which(test$gap[] == 'NaN'), 4] <- NA
-
-
-
-test
+test_yield[which(test_yield$gap[] == 'NaN'), 4] <- NA
+test_yield
 
 
 
@@ -783,7 +802,7 @@ Climate <- inner_join(I.Prec, I.Temp)
 
 
 
-OB1 <- inner_join(Climate, test %>% select(-lat, -long), by = 'i')
+OB1 <- inner_join(Climate, test_yield %>% select(-lat, -long), by = 'i')
 
 OB1 %>% select(gap) %>% summary
 # NA's   :11315  # Total = 23834   # Pixels coincidentes 12519 
@@ -791,7 +810,22 @@ OB1 %>% select(gap) %>% summary
 
 
 COB1 <- OB1 %>% na.omit 
-# COB1 %>% write.csv(file = 'monthly_out/summary.csv', row.names = FALSE)
+COB1 %>% write.csv(file = paste0('monthly_out/', crop, '/summary.csv'), row.names = FALSE)
+
+
+
+##### In this parth we don't use anymore the climate information for that today, i want to clear memory. 
+
+
+# clean memory 
+gc(verbose = TRUE)
+gc(reset = TRUE)
+rm(list = ls())
+
+
+
+setwd('/mnt/workspace_cluster_9/AgMetGaps')
+crop <- 'rice' # rice , maize , wheat
 
 
 
@@ -809,7 +843,6 @@ var <- names(tbl)[-(1:3)]
 #### Creation function to make variograms for all variables, (revision of the spatial correlation).
 
 var1 <- var[1]
-
 all_variograms <- function(var, tbl){
   
   geo_gap <- tbl %>% dplyr::select(long, lat, !!var) %>% as.geodata()
@@ -834,7 +867,7 @@ var %>%
 
 
 
-
+##### reviews 
 
 
 
@@ -842,34 +875,33 @@ var %>%
 
 ##################################################################
 ##################################################################
-##########        proof : first idea to analysis        ########## 
+##########          Correlations and rasterize          ########## 
 ##################################################################
 ##################################################################
 
-# temporal 
-#### Correlations and rasterize 
+#### Correlations and rasterize ---
 
-
-
-
-#### Correlations and rasterize --- ok i'm revision to the process from here
-
+# if you clean af objects of the memory. 
+path <- "/mnt/workspace_cluster_9/AgMetGaps/Inputs/05-Crop Calendar Sacks/"
+crop <- 'rice' # rice , maize , wheat
+crop_type <- 'Rice.crop.calendar.nc' # rice , maize , wheat
+pdate <- raster(paste0(path, crop_type), varname = 'plant') %>%  crop(extent(-180, 180, -50, 50))
 
 pdate %>%
   plot
 
 
+###### ----- 
 
-var <- 'gap'
 
-rasterize_masa <-  function(var, x, raster){
-  points <- COB1 %>%
-    dplyr::select(long, lat) %>%
+rasterize_masa <-  function(var, data, raster){
+  points <- data %>%
+    select(long, lat) %>%
     data.frame 
   
   
-  vals <- COB1 %>%
-    dplyr::select(!!var) %>%
+  vals <- data %>%
+    select(!!var) %>%
     magrittr::extract2(1)
   
   y <- rasterize(points, raster, vals, fun = sum)
@@ -878,22 +910,27 @@ rasterize_masa <-  function(var, x, raster){
 
 
 ##### Read all data set how rasters
-all_inf <- COB1 %>%  
+all_inf <- tbl %>%  
   names  %>% 
   .[-(1:3)] %>% 
   as.tibble() %>% 
   rename(var = value) %>% 
-  mutate(rasters = purrr::map(.x = var, .f = rasterize_masa, x = COB1, raster = pdate))
+  mutate(rasters = purrr::map(.x = var, 
+                              .f = rasterize_masa, 
+                              data = tbl, raster = pdate))
+
+
+
 
 
 ##### create a raster stack object with the all variables to the data set 
-all_inf <- COB1 %>% 
+all_inf <- tbl %>% 
   names %>%
   .[-(1:3)] %>%
   as.list() %>%
-  lapply(., rasterize_masa,  x = COB1, raster = pdate) %>% 
+  lapply(., rasterize_masa,  data = tbl, raster = pdate) %>% 
   stack %>% 
-  set_names(COB1 %>%  
+  set_names(tbl %>%  
               names  %>% 
               .[-(1:3)])
 
@@ -907,10 +944,10 @@ all_inf <- COB1 %>%
 # x = cualquier otro raster 
 
 
-correlations_exp <- function(.x, .y, all_inf){
+correlations_exp <- function(.x, .y, data){
   
-  idea <- stack( all_inf[[which(all_inf %>% names == .x )]], all_inf[[which(all_inf %>% names == .y )]])
-  RI <- corLocal(idea[[1]], idea[[2]], ngb=5,   method = "pearson" )  
+  variables <- stack( data[[which(data %>% names == .x )]], data[[which(data %>% names == .y )]])
+  RI <- corLocal(variables[[1]], variables[[2]], ngb=5,   method = "pearson" )  
   
   RI %>% 
     rasterVis::gplot(.) + 
@@ -927,8 +964,8 @@ correlations_exp <- function(.x, .y, all_inf){
   writeRaster(x = RI, filename = paste0('monthly_out/',crop,'/correlations/', .x,'_', .y, '.tif'))
   
   
-  
-  (RI > 0.5) %>% 
+  # changed the correlation umbral 
+  (RI > 0.2) %>% 
     rasterVis::gplot(.) + 
     geom_tile(aes(fill = value)) + 
     u + 
@@ -950,7 +987,8 @@ df <- all_inf %>%
   names %>% 
   as.tibble() %>% 
   slice(-n()) %>% 
-  mutate(pixelC =  purrr::map(.x = value, .f = correlations_exp ,.y = 'gap', all_inf = all_inf))
+  mutate(pixelC =  purrr::map(.x = value, .f = correlations_exp ,.y = 'gap', data = all_inf))
+
 
 
 
