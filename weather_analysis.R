@@ -13,10 +13,11 @@ library(ncdf4)
 library(purrr)
 # source("main_functions.R")
 
-# path <- '/mnt/workspace_cluster_9/AgMetGaps/Inputs/05-Crop Calendar Sacks/'
-path <- '//dapadfs/workspace_cluster_9/AgMetGaps/Inputs/05-Crop Calendar Sacks/'
-# out_path <- '/mnt/workspace_cluster_9/AgMetGaps/weather_analysis/spatial_points/'    ## folder del proyecto para pegar la informacion necesaria
-out_path <- '//dapadfs/workspace_cluster_9/AgMetGaps/weather_analysis/spatial_points/'
+
+# path <- '//dapadfs/workspace_cluster_9/AgMetGaps/Inputs/05-Crop Calendar Sacks/'
+# out_path <- '//dapadfs/workspace_cluster_9/AgMetGaps/weather_analysis/spatial_points/'
+out_path <- '/mnt/workspace_cluster_9/AgMetGaps/weather_analysis/spatial_points/'    ## folder del proyecto para pegar la informacion necesaria
+path <- '/mnt/workspace_cluster_9/AgMetGaps/Inputs/05-Crop Calendar Sacks/'
 
 
 planting <- c('Rice.crop.calendar.nc', 'Maize.crop.calendar.nc', 'wheat.crop.calendar.nc')  ## wheat winter???
@@ -142,36 +143,127 @@ toc()
 
 library(lubridate)
 library(tidyverse)
-library(raster)
+# library(raster)
 library(future)
-library(velox)
-library(sf)
-library(tictoc)
+# library(velox)
+# library(sf)
+# library(tictoc)
+library(fst)
+# library(feather)
 library(doFuture)
+library(data.table)
 
 path <- '/mnt/workspace_cluster_9/AgMetGaps/weather_analysis/precipitation_points/daily_chirps_csv/'
-csv_files <- list.files(path = path, full.names = TRUE)
+csv_files <- list.files(path = path, full.names = TRUE, pattern = '*.csv$')
 out_path <- '/mnt/workspace_cluster_9/AgMetGaps/weather_analysis/precipitation_points/weather_stations/'
 
-## make type of future
+## make type of future to read in fread mode an them change to fst o feather and compare this to know wich it is better
+
 
 
 local_cpu <- rep("localhost", availableCores() - 2)
 # external_cpu <- rep("caribe.ciat.cgiar.org", 8)  # server donde trabaja Alejandra
-external_cpu <- rep("climate.ciat.cgiar.org", each = 5)
+external_cpu <- rep("caribe.ciat.cgiar.org", each = 5)
 
-workers <- c(local_cpu, external_cpu)
+# workers <- c(local_cpu, external_cpu)
 
-options(future.globals.maxSize= 31912896000) # ~31 Gb
-extract_Wstation(csv_files, cpus = workers , strategy = "future::cluster")
+options(future.globals.maxSize = 31912896000) # (31912896000)~31 Gb
+# extract_Wstation(csv_files, cpus = workers , strategy = "future::cluster")
 
 # plan(multisession, workers = 10)
-plan(cluster, workers = workers)
+
+
+
+# plan(cluster, workers = workers)
+plan(cluster, workers = local_cpu)
+
+
+future::future_lapply(csv_files, FUN = make_fst)
+
+### otra parte
+
+library(future)
+library(fst)
+library(dplyr)
+library(tictoc)
+
+
+path <- '/mnt/workspace_cluster_9/AgMetGaps/weather_analysis/precipitation_points/daily_chirps_csv/'
+fst_files <- list.files(path = path, full.names = TRUE, pattern = '*.fst$')
+csv_files <- list.files(path = path, full.names = TRUE, pattern = '*.csv$')
+n_pixel <- read.fst(fst_files[1]) %>%
+  dim() %>%
+  magrittr::extract(1)
+ 
+seq_pixel <- 1:n_pixel
+
+
+options(future.globals.maxSize = 3191289600) 
+
+
+local_cpu <- rep("localhost", availableCores() - 2)
+# plan(cluster, workers = local_cpu)
+plan(multisession, workers = length(local_cpu))
+
+x <- future::future_lapply(x = fst_files, FUN = fst::read.fst, as.data.table = TRUE)
+
+
+
+map(.x = x, .f = fst_pixel, pixel = 2)
+tic("mapping weather station chirps")
+x <- map(.x = fst_files[1:100], .f = ~future(make_Wstation(pixel = .x, x = x))) %>%
+  future::values()
+toc()
 
 
 
 
-future::future_lapply(x, FUN = export_weather)
+
+
+
+
+make_Wstation(x, pixel = 1)
+
+export_weather(x, pixel = 1)
+
+fst_pixel(fst_files[2], pixel  = 1)
+
+tic("fst one pixel")
+x <- map(.x = fst_files[1:1000], .f = fst_pixel, pixel = 1)
+toc()
+
+tic("readr")
+map(.x = csv_files[1:100], .f = read_daily, pixel = 1)
+toc()
+
+tic("fst")
+x <- map(.x = fst_files[1:1000], .f = read_fst)
+toc()
+
+
+fst_pixel(x, pixel  = 1)
+tic("readr")
+x <- lapply(csv_files[1:1000], FUN = read_csv)
+toc()
+
+
+read_daily <- function(x, pixel){
+  
+  readr::read_csv(file = x, skip = pixel, n_max = 1, col_types = cols()) ## this works
+
+  
+}
+
+# fst_df <- read.fst(fst_files[1])
+
+# df <- read.fst(paste0(path, "dataset.fst"))
+
+
+
+
+
+
+
 
 v <- listenv()
 for (i in 1:1000) { v[[i]] %<-% {

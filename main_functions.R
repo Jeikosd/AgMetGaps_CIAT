@@ -134,9 +134,9 @@ write_shp <- function(sf, out_path, raster_source){
 }
 
 
-
-#### sencod part
-
+############################################
+#### second part ###########################
+############################################
   
   
 extract_date <- function(filename){
@@ -149,6 +149,8 @@ extract_date <- function(filename){
     magrittr::extract2(1)
   
 }
+
+
 
 
 
@@ -230,12 +232,90 @@ extract_velox <- function(file, points, out_file){
 #     dplyr::bind_rows()
 # }
 
-##### esto es posible de paralelizar utilizando el paquete future
+
+
+
+## Mejorar esta funcion
+
+make_fst <- function(x){
+  
+  # x <- csv_files[1]
+  date <- basename(x)
+  path <- stringr::str_replace_all(x, pattern = date, replacement  = '')
+    
+  date <- stringr::str_replace_all(date, pattern = ".csv", replacement  = '')
+  
+  x <- data.table::fread(x) %>%
+    as.data.frame()
+  
+  # x <- as.data.frame(x)
+
+  fst::write.fst(x, paste0(path, date, ".fst"))
+}
+
+# make_fst(csv_files[1])
+
+# x <- fst_files[1]
+
+fst_pixel <- function(x, pixel){
+  
+  # fst::read.fst(x, from = pixel, to = pixel, as.data.table = TRUE)
+  x[pixel, ]
+}
+
+# fst_pixel(x = fst_files[1], pixel = 2)
+## paralelizar esta parte
+
+# map(.x = fst_files, .f = fst_pixel, pixel = 1)
+
+make_Wstation(pixel = 1, x = fst_files[1:100])
+tic("paralelizacion map")
+purrr::map(.x = fst_files, .f = ~future(fst_pixel(x = .x, 1)))
+future:future_lapply(x = fst_files, FUN = fst_pixel, pixel = 1)
+
+make_Wstation <- function(pixel, x){
+  
+  
+  # pixel <- 1
+  # col_names <- df_names
+  
+  # tic("make weather station using readr")
+  purrr::map(.x = x, .f = fst_pixel, pixel) %>%
+    # rbindlist()
+    bind_rows()
+  # toc()
+  
+  # fread_folder(path, extension = "CSV", skip = 1)
+  
+  
+}
+
+export_weather <- function(x, pixel){
+  
+  
+  weather_station <- make_Wstation(x, pixel)
+  # name_station <- paste0(out_path, 'daily_pixel_', pixel, '.csv')
+  # write_csv(x = weather_station, path = name_station) 
+  
+}
+
+
 
 read_daily <- function(x, skip, col_names){
   
-readr::read_csv(file = x, skip = skip, n_max = 1, col_names = col_names, col_types = cols())
-    
+  readr::read_csv(file = x, skip = skip, n_max = 1, col_names = col_names, col_types = cols()) ## this works
+  # text <- read_lines(x, skip = skip, n_max = 1) 
+  # text <- paste(col_names, collapse = ',') %>%
+  #   paste(text, sep = '\n')
+                  
+  
+  # read_csv(paste(paste(col_names, collapse = ','), text, sep = '\n'))
+  
+  
+  # readr::read_csv(file = x[1], skip = 2, n_max = 1, col_names = col_names, col_types = cols())
+  
+
+  
   # data.table::fread(file = x, skip = skip, nrows = 1, col.names = df_names)
   
 }
@@ -244,7 +324,7 @@ make_Wstation <- function(x, pixel, col_names){
   
 
   # pixel <- 1
-  
+  # col_names <- df_names
   
   # tic("make weather station using readr")
   purrr::map(.x = x, .f = read_daily, skip = pixel, col_names = col_names) %>%
@@ -289,9 +369,7 @@ export_weather <- function(x, pixel, out_path){
 # }
 
 
-
-
-extract_Wstation <- function(x){
+extract_Wstation <- function(x, cpus, strategy){
   
   num_pixel <- purrr::map(.x = x, .f = function(x) dim(x)[1]) %>%
     unlist %>%
@@ -300,33 +378,19 @@ extract_Wstation <- function(x){
   
   # cpus <- future::availableCores() - 3
   
-  x <- make_Wstation(pixel = 1:num_pixel, x)
+  # x <- make_Wstation(pixel = 1:num_pixel, x, out_path)
+  # is it better foreach?
+  registerDoFuture() 
+  plan(strategy, workers = cpus)
   
-  return(x)
+  foreach(i = 1:length(x)) %dopar% {
+    
+    export_weather(pixel = i, x, out_path) 
+  }
+  
   # strategy <- "future::multisession"
   
-  
-  # params <- purrr::map(.x = 1:2, .f = function(x) list(pixel = x))
-  # 
-  # df <- dplyr::data_frame(f = 'make_Wstation', x = x)
-  # invoke_map(df$f, df$pixel)
-  # 
-  # 
-  # make_Wstation(x, pixel = 1)
-  # purrr::invoke(make_Wstation, params)
-  # invoke_map("make_Wstation", list(x = x, pixel = params))
-  # purrr::map(.x = num_pixel, .f = make_Wstation, pixel = 1)
-  # 
-  # df <- dplyr::data_frame(
-  #   f = c("runif", "rpois", "rnorm"),
-  #   params = list(
-  #     list(n = 10),
-  #     list(n = 5, lambda = 10),
-  #     list(n = 10, mean = -3, sd = 10)
-  #   )
-  # )
-  # df
-  # invoke_map(df$f, df$params)
+
   
 }
 
@@ -337,7 +401,7 @@ export_weather <- function(x, path){
   file_name <- paste0(path, 1:length(x), '.csv')
   
   # purrr::map2(.x = prueba, .y = file_name, ~future(write_csv(x = .x, path = .y)))
-  
+  f <- listenv::listenv()
   f <- future({ for(i in 1:length(prueba)){
     
     write_csv(x = prueba[[i]], path = file_name[i]) 
