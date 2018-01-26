@@ -713,6 +713,20 @@ Yield.G <- list.files(path = 'Inputs/Yield_Gaps_ClimateBins/rice_yieldgap_netcdf
 
 
 
+shp <- shapefile(paste("/mnt/workspace_cluster_9/AgMetGaps/Inputs/shp/mapa_mundi.shp",sep="")) %>% 
+  crop(extent(-180, 180, -50, 50))
+
+u <- borders(shp, colour="black")
+Blues<-colorRampPalette(c('#fff7fb','#ece7f2','#d0d1e6','#a6bddb','#74a9cf','#3690c0','#0570b0','#045a8d','#023858','#233159'))
+ewbrks <- c(seq(-180,0,45), seq(0, 180, 45))
+nsbrks <- seq(-50,50,25)
+ewlbls <- unlist(lapply(ewbrks, function(x) ifelse(x < 0, paste(abs(x), "°W"), ifelse(x > 0, paste( abs(x), "°E"),x))))
+nslbls <- unlist(lapply(nsbrks, function(x) ifelse(x < 0, paste(abs(x), "°S"), ifelse(x > 0, paste(abs(x), "°N"),x))))
+
+
+
+
+
 list.files(path = 'Inputs/Yield_Gaps_ClimateBins/rice_yieldgap_netcdf/', 
            pattern = 'YieldGap.nc', full.names = TRUE) %>% raster %>% 
   crop(extent(-180, 180, -50, 50))  %>% 
@@ -833,7 +847,7 @@ crop <- 'rice' # rice , maize , wheat
 ######## variograms 
 
 
-tbl <- read.csv('monthly_out/summary.csv') # read database in case we don't have it in memory
+tbl <- read.csv(paste0('monthly_out/',crop,'/summary.csv')) # read database in case we don't have it in memory
 View(tbl)
 
 var <- names(tbl)[-(1:3)]
@@ -944,10 +958,22 @@ all_inf <- tbl %>%
 # x = cualquier otro raster 
 
 
-correlations_exp <- function(.x, .y, data){
+correlations_exp <- function(.x, .y, data, ngb){
   
   variables <- stack( data[[which(data %>% names == .x )]], data[[which(data %>% names == .y )]])
-  RI <- corLocal(variables[[1]], variables[[2]], ngb=5,   method = "pearson" )  
+  RI <- corLocal(variables[[1]], variables[[2]], ngb= ngb,   method = "pearson" )  
+  
+  ### Lectura del shp
+  shp <- shapefile(paste("/mnt/workspace_cluster_9/AgMetGaps/Inputs/shp/mapa_mundi.shp",sep="")) %>% 
+    crop(extent(-180, 180, -50, 50))
+  u<-borders(shp, colour="black")
+  
+  ewbrks <- c(seq(-180,0,45), seq(0, 180, 45))
+  nsbrks <- seq(-50,50,25)
+  ewlbls <- unlist(lapply(ewbrks, function(x) ifelse(x < 0, paste(abs(x), "°W"), ifelse(x > 0, paste( abs(x), "°E"),x))))
+  nslbls <- unlist(lapply(nsbrks, function(x) ifelse(x < 0, paste(abs(x), "°S"), ifelse(x > 0, paste(abs(x), "°N"),x))))
+  
+  
   
   RI %>% 
     rasterVis::gplot(.) + 
@@ -960,8 +986,8 @@ correlations_exp <- function(.x, .y, data){
     scale_y_continuous(breaks = nsbrks, labels = nslbls, expand = c(0, 0)) +
     theme_bw() + theme(panel.background=element_rect(fill="white",colour="black")) 
   
-  ggsave( paste0('monthly_out/',crop,'/correlations/', .x, '_', .y, '.png'), width = 8, height = 3.5)
-  writeRaster(x = RI, filename = paste0('monthly_out/',crop,'/correlations/', .x,'_', .y, '.tif'))
+  ggsave( paste0('monthly_out/',crop,'/correlations/', .x, '_', .y, '_ngb_',ngb, '.png'), width = 8, height = 3.5)
+  writeRaster(x = RI, filename = paste0('monthly_out/',crop,'/correlations/', .x,'_', .y, '_ngb_',ngb,'.tif'))
   
   
   # changed the correlation umbral 
@@ -976,10 +1002,9 @@ correlations_exp <- function(.x, .y, data){
     scale_y_continuous(breaks = nsbrks, labels = nslbls, expand = c(0, 0)) +
     theme_bw() + theme(panel.background=element_rect(fill="white",colour="black"), legend.position = 'none') 
   
-  ggsave( paste0('monthly_out/',crop,'/correlations/abs_', .x,'_', .y, '.png'), width = 8, height = 3.5)
+  ggsave( paste0('monthly_out/',crop,'/correlations/abs_', .x,'_', .y, '_ngb_',ngb, '.png'), width = 8, height = 3.5)
   
-  
-  RI.i <- length(which(abs(RI[]) > 0.5)) / length(na.omit(RI[])) * 100
+  RI.i <- length(which(abs(RI[]) > 0.2)) / length(na.omit(RI[])) * 100
   
   return(RI.i)}
 
@@ -991,17 +1016,27 @@ df <- all_inf %>%
 
 
 
+### save summary file (which percent of pixels has correlation >0.5)
+df %>% 
+  unnest %>% 
+  write.csv(file = paste0('monthly_out/',crop,'/correlations/Local_cor_ngb3.csv'))
 
-df %>% unnest
 
 
 
-abs_C <- list.files(path = paste0('monthly_out/',crop,'/correlations/'), pattern = 'tif', full.names = TRUE) %>% 
+
+##### Only for preliminar clusters only with the cv information
+
+abs_C <- list.files(path = paste0('monthly_out/',crop,'/correlations'), pattern = '*.cv.*3.tif*', full.names = TRUE)  %>% 
   stack %>% 
   abs() 
 
 
-abs_C1 <- (abs_C > 0.5) %>%
+
+
+
+
+abs_C1 <- (abs_C > 0.2) %>%
   sum 
 
 
@@ -1018,11 +1053,12 @@ abs_C1 %>%
   theme_bw() + theme(panel.background=element_rect(fill="white",colour="black")) 
 
 
+ggsave(paste0('monthly_out/',crop,'/correlations/cor_max_02.png'), width = 10, height = 4)
 
 
 
 
-(abs_C1 > 10) %>% 
+(abs_C1 == 6) %>% 
   rasterVis::gplot(.) + 
   geom_tile(aes(fill = value)) + 
   u + 
@@ -1034,6 +1070,7 @@ abs_C1 %>%
   theme_bw() + theme(panel.background=element_rect(fill="white",colour="black")) 
 
 
+ggsave(paste0('monthly_out/',crop,'/correlations/cor_max_02_6var.png'), width = 10, height = 4)
 
 
 
@@ -1042,125 +1079,10 @@ abs_C1 %>%
 
 #### only evaluate the cv correlation with the yield_gap
 
+tbl %>% summary
 
-
-list.files(path = paste0('monthly_out/',crop,'/correlations'), pattern =  glob2rx('*cv*.tif*') , full.names = TRUE)
+# list.files(path = paste0('monthly_out/',crop,'/correlations'), pattern =  glob2rx('*cv*.tif*') , full.names = TRUE)
 #  glob2rx('*cv*.tif*') == "^.*cv.*\\.tif"
-
-
-
-read.csv("monthly_out/rice/summary.csv") %>% 
-  .[-(1:3)] %>%
-  cor() %>% 
-  write.csv(file = "monthly_out/rice/cor.csv")
-
-
-
-read.csv("monthly_out/rice/summary.csv") %>% 
-  .[-(1:3)] %>%
-  cor(method = 'spearman') %>% 
-  write.csv(file = "monthly_out/rice/cor_S.csv")
-
-
-
-
-read.csv("monthly_out/rice/summary.csv") %>% 
-  .[-(1:3)] %>%
-  cor(method = 'kendall') %>% 
-  write.csv(file = "monthly_out/rice/cor_k.csv")
-
-###############################################################################
-
-read.csv("monthly_out/rice/summary.csv") %>% 
-  .[-(1:3)] %>% 
-  plot
-
-
-
-
-
-
-##########
-
-proof <- read.csv("monthly_out/rice/summary.csv") %>% 
-  .[-(1:3)]
-
-
-scatter_graphs <- function(.x, .y, proof){
-  
-  proof %>%  
-    ggplot2::ggplot(., aes(x =  proof[,.x],y = proof[,.y])) + 
-    geom_point(alpha=2/10, shape=21, fill="blue", colour="black", size=2) +
-    geom_smooth(method = "lm", se = FALSE) +
-    labs(x= .x, y = .y, title = 'Correlation',
-         subtitle = paste0('Pearson = ', round(cor(proof[,.x], proof[,.y]),3), '    -   Spearman = ', round(cor(proof[,.x], proof[,.y], method = 'spearman'),3))) + 
-    theme_bw() 
-  
-  ggsave(filename = paste0('monthly_out/',crop,'/dispersion/', .x, '_', .y, '.png'))
-}
-
-
-
-proof %>% 
-  names %>%
-  as.tibble() %>%
-  slice(-n()) %>%
-  mutate(test = purrr::map(.x = value, .f = scatter_graphs, .y = 'gap', proof = proof))
-
-
-
-
-
-
-###################################################################################
-########## Test for ACP (explonatory analysis). Initialy is only for verification.  
-
-
-
-Yield.P <- list.files(path = 'Inputs/Yield_Gaps_ClimateBins/rice_yieldgap_netcdf/', 
-                      pattern = 'YieldPotential.nc', full.names = TRUE) %>%
-  as.tibble %>% 
-  mutate(load_raster = purrr::map(.x = value, .f = function(.x){ 
-    raster(.x) %>%  crop(extent(-180, 180, -50, 50))})) %>%
-  mutate(raster_df =  purrr::map(.x = load_raster, .f = velox::velox) ) 
-
-
-
-coords <- coordinates(sp_pdate) %>%
-  tbl_df() %>%
-  rename(lat = V1, long = V2)
-
-
-Yield.P$raster_df
-
-test <- Yield.P$raster_df[[1]]$extract(sp_pdate, fun = function(x){ 
-  mean(x, na.rm = T)}) %>%
-  tbl_df() %>%
-  rename(potential = V1) %>%
-  bind_cols(coords) %>%
-  mutate(i = 1:nrow(.)) %>%
-  dplyr::select(i, lat, long, potential)
-
-
-test[which(test$potential[] == 'NaN'), 4] <- NA
-test
-
-
-Climate <- read.csv("monthly_out/rice/summary.csv") 
-OB1 <- inner_join(Climate, test %>% select(-lat, -long), by = 'i')
-
-
-
-cor(OB1$gap, OB1$potential )
-
-
-
-cor(OB1)
-
-OB1 %>% select(-i, -lat, -long) %>% cor %>% write.csv('potential.csv')
-
-OB1 %>% select(-i, -lat, -long) %>% cor(method = 'spearman') %>% write.csv('potential_S.csv')
-
 
 
 
@@ -1176,58 +1098,106 @@ scatter_graphs <- function(.x, .y, proof){
          subtitle = paste0('Pearson = ', round(cor(proof[,.x], proof[,.y]),3), '    -   Spearman = ', round(cor(proof[,.x], proof[,.y], method = 'spearman'),3))) + 
     theme_bw() 
   
-  ggsave(filename = paste0('monthly_out/rice/',.x, '_', .y, '.png'))
+  ggsave(filename = paste0('monthly_out/rice/dispersion/',.x, '_', .y, '.png'))
 }
 
 
 
 
 
-OB1 %>% 
+tbl %>% 
   names %>% 
+  .[-(1:3)] %>%
   as.tibble() %>% 
   slice(-n()) %>%
-  mutate(test = purrr::map(.x = value, .f = scatter_graphs, .y = 'potential', proof = OB1))
+  mutate(test = purrr::map(.x = value, .f = scatter_graphs, .y = 'gap', proof = tbl))
+
+
+
+tbl %>% 
+  .[-(1:3)] %>%
+  cor() %>% 
+  write.csv(file = paste0('monthly_out/',crop,'/dispersion/corP.csv'))
+
+
+tbl %>% 
+  .[-(1:3)] %>%
+  cor(method = 'spearman') %>% 
+  write.csv(file = paste0('monthly_out/',crop,'/dispersion/corS.csv'))
+
+
+
+tbl %>% 
+  .[-(1:3)] %>%
+  cor(method = 'kendall') %>% 
+  write.csv(file = paste0('monthly_out/',crop,'/dispersion/cork.csv'))
 
 
 
 
 
 
-OB1 %>% 
-  select(a.cv.prec,b.cv.prec, c.cv.prec, a.cv.temp,b.cv.temp,c.cv.temp, gap, potential) %>% 
-  cor  
 
 
 
+###################################################################################
+########## Test for ACP (explonatory analysis). Initialy is only for verification.  
 
-
-################# Revisar dos cosas más... 1. mapa de correlaciones - 2. ACP con mapa de pesos...  
-
-
-
-
-### How make a spatial ACP in r 
 library(FactoMineR)
 
-#  i    lat  long 
-#res.pca <- OB1 %>% select( -i, -lat, -long ) %>% PCA()
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
 
-
-OB1 %>% 
+# all others with gap 
+tbl %>% 
   select( -i, -lat, -long, -a.cv.prec, -b.cv.prec, -c.cv.prec,
           -a.cv.temp, -b.cv.temp, -c.cv.temp) %>%
   PCA()
 
-# 
 
-res.pca <- OB1 %>% 
-  select(a.cv.prec,b.cv.prec, c.cv.prec, a.cv.temp,b.cv.temp,c.cv.temp, gap, potential) %>% 
+
+# cv's with gap 
+tbl %>% 
+  select(a.cv.prec,b.cv.prec, c.cv.prec, a.cv.temp,b.cv.temp,c.cv.temp, gap) %>% 
   PCA()
+
+
+
+
+
+#### PCA cv for all times and variables 
+
+
+res.pca <- tbl %>% 
+  select(a.cv.prec,b.cv.prec, c.cv.prec, a.cv.temp,b.cv.temp,c.cv.temp) %>% 
+  PCA()
+
+
 ## plot of the eigenvalues
 barplot(res.pca$eig[,1],main="Eigenvalues",names.arg=1:nrow(res.pca$eig))
 summary(res.pca)
 dimdesc(res.pca, axes = 1:2)
+
+
+res.pca %>% names
+
+
+
+
+
+res.pca$ind$coord %>% 
+  .[,1:2] %>% 
+  cbind.data.frame(gap = tbl$gap) %>%
+  cor 
+
+
+res.pca$ind$coord %>% 
+  .[,1:2] %>% 
+  cbind.data.frame(gap = tbl$gap) %>%
+  plot
+
+
 
 
 
