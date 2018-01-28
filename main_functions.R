@@ -1134,3 +1134,81 @@ prueba <- function(chirps_file, start_plant, end_plant, points_coord){
     
     
   
+    
+    
+    extract_velox <- function(file, points, out_file){
+      
+      file <- x[1:100]
+      # points <- geo_files
+      
+      
+      # velox(list(velox(x[1], velox[2])))
+      tic("parallel future")
+      # vx_raster <- future.apply::future_lapply(X = file, FUN = velox::velox) %>%
+      # velox()
+      
+      
+      toc()
+      
+      
+      
+      tic('unparalelized stack')
+      stk <- purrr::map(.x = file, .f = raster) %>%
+        raster::stack()
+      
+      vx_raster <- velox::velox(stk)
+      toc()
+      
+      ## paralelizar esta parte
+      plan(multisession)
+      tic('parallel stack')
+      stk <- purrr::map(.x = file, .f = ~future(raster(.x))) %>%
+        future::values() %>%
+        raster::stack()
+      toc()
+      
+      vx_raster <- velox::velox(stk)
+      
+      
+      # coords <- sp::coordinates(points) %>%
+      #   tbl_df() %>%
+      #   dplyr::rename(lat = V1, 
+      #                 long = V2)
+      
+      coords <- points  %>% 
+        st_set_geometry(NULL) %>%
+        dplyr::select(lat, long) %>%
+        as_tibble()
+      
+      
+      # 
+      date_raster <- purrr::map(.x = file, .f = extract_date) %>%
+        purrr::map(.x = ., .f = as_tibble) %>%
+        bind_rows() %>%
+        pull()
+      mutate(id = as_factor(paste0('day_', 1:nrow(.)))) %>%
+        tidyr::spread(id, value) %>%
+        
+        
+        ## agregarle lat y long mejor
+        values <- vx_raster$extract(points, fun = mean_point) %>%
+        tbl_df() %>%
+        purrr::set_names(date_raster) 
+      
+      
+      ## agregacion por pixel
+      
+      coords <- filter(coords, row_number() == 1)
+      by_pixel <- filter(values, row_number() == 1) %>%  
+        tidyr::gather(date, precip) %>%
+        cbind(coords)
+      
+      
+      
+      # column_names <- dplyr::tbl_vars(values) 
+      
+      write_csv(values, path = paste0(out_file, daily_day, '.csv'))
+      
+      return(values)
+    }
+    
