@@ -866,7 +866,7 @@ all_variograms <- function(var, tbl){
   vario.b <- variog(geo_gap)
   env.mc <- variog.mc.env(geo_gap, obj.var=vario.b)
   
-  png(file = paste0('monthly_out/', crop, '/variograms/variogram_', var, '.png'),  width = 720,
+  png(file = paste0(out_path, crop, '/variograms/variogram_', var, '.png'),  width = 720,
       height = 600)
   plot(vario.b, envelope=env.mc, col = 'red', pch =  19, main = var, lwd =3)
   dev.off()
@@ -986,8 +986,8 @@ correlations_exp <- function(.x, .y, data, ngb){
     scale_y_continuous(breaks = nsbrks, labels = nslbls, expand = c(0, 0)) +
     theme_bw() + theme(panel.background=element_rect(fill="white",colour="black")) 
   
-  ggsave( paste0('monthly_out/',crop,'/correlations/', .x, '_', .y, '_ngb_',ngb, '.png'), width = 8, height = 3.5)
-  writeRaster(x = RI, filename = paste0('monthly_out/',crop,'/correlations/', .x,'_', .y, '_ngb_',ngb,'.tif'))
+  ggsave( paste0(out_path ,crop,'/correlations/', .x, '_', .y, '_ngb_',ngb, '.png'), width = 8, height = 3.5)
+  writeRaster(x = RI, filename = paste0(out_path ,crop,'/correlations/', .x,'_', .y, '_ngb_',ngb,'.tif'))
   
   
   # changed the correlation umbral 
@@ -1002,7 +1002,7 @@ correlations_exp <- function(.x, .y, data, ngb){
     scale_y_continuous(breaks = nsbrks, labels = nslbls, expand = c(0, 0)) +
     theme_bw() + theme(panel.background=element_rect(fill="white",colour="black"), legend.position = 'none') 
   
-  ggsave( paste0('monthly_out/',crop,'/correlations/abs_', .x,'_', .y, '_ngb_',ngb, '.png'), width = 8, height = 3.5)
+  ggsave( paste0(out_path,crop,'/correlations/abs_', .x,'_', .y, '_ngb_',ngb, '.png'), width = 8, height = 3.5)
   
   RI.i <- length(which(abs(RI[]) > 0.2)) / length(na.omit(RI[])) * 100
   
@@ -1199,6 +1199,210 @@ res.pca$ind$coord %>%
 
 
 
+
+
+
+
+
+
+
+
+
+
+#########################################################################################
+#########################################################################################
+#########################################################################################
+##########################    GROC Analysis                         
+#########################################################################################
+#########################################################################################
+#########################################################################################
+
+list.files(paste0(out_path, crop, '/GROC'), pattern = '.tif', 
+           full.names = TRUE) %>% 
+  stack() %>% 
+  plot
+
+
+
+
+GROC <- list.files(paste0(out_path, crop, '/GROC'), pattern = '.tif', 
+                   full.names = TRUE)  %>%
+  as.tibble %>% 
+  mutate(load_raster = purrr::map(.x = value, .f = function(.x){ 
+    raster(.x) %>%  crop(extent(-180, 180, -50, 50))})) %>%
+  mutate(raster_df =  purrr::map(.x = load_raster, .f = velox::velox) ) 
+
+
+
+#### Create a function to strack the points 
+extract_velox <- function(velox_Object, points){
+  
+  coords <- coordinates(points) %>%
+    tbl_df() %>%
+    rename(lat = V1, long = V2)
+  
+  velox_Object$extract(points, fun = function(x){ 
+    x[x<0] <- NA
+    x <- as.numeric(x)
+    mean(x, na.rm = T)}) %>%
+    tbl_df() %>%
+    rename(values = V1) %>%
+    bind_cols(coords) %>%
+    mutate(i = 1:nrow(.)) %>%
+    dplyr::select(i, lat, long, values)
+}
+
+
+
+
+
+
+GROC <- list.files(paste0(out_path, crop, '/GROC'), pattern = '.tif', 
+                   full.names = TRUE)  %>%
+  as.tibble %>%
+  mutate(load_raster = purrr::map(.x = value, .f = function(.x){ 
+    raster(.x) %>%  crop(extent(-180, 180, -50, 50))})) %>%
+  mutate(raster_df = purrr::map(.x = load_raster, .f = ~future(velox(.x)))) %>%
+  mutate(raster_df = purrr::map(raster_df, .f = ~value(.x))) %>% 
+  mutate(points = purrr::map(.x = raster_df, .f = ~future(extract_velox(velox_Object = .x, points = sp_pdate)))) %>%
+  mutate(points = purrr::map(points, ~value(.x))) 
+
+
+
+
+##############
+
+
+
+change_N <- function(.x, .y){
+  rename_d <- .x %>%
+    setNames(c("i", "long", "lat" , .y))
+  return(rename_d)}
+
+
+
+GROC_F <- GROC %>% 
+  select(value, points) %>%
+  mutate(name = list.files(paste0(out_path, crop, '/GROC'), pattern = '.tif') %>%
+           #strsplit(., 'Mcalendar_')
+           stringr::str_split('Mcalendar_', simplify = TRUE)%>%
+           .[,2] %>%
+           stringr::str_split('.tif', simplify = TRUE) %>%
+           .[,1]) %>%
+  select(name, points) %>%
+  mutate(data = purrr::map2(.x = points, .y = name, .f = change_N))  %>%  
+  select(data)  %>% 
+  split(., f = 1:6) %>%
+  lapply(., unnest) %>% 
+  purrr::reduce(inner_join) 
+
+
+
+Total_var <- inner_join(x = tbl, y = GROC_F %>% select(-lat, -long), by = 'i') 
+write.csv(x = Total_var, file = paste0(out_path, crop, '/Total_vars.csv'), row.names = FALSE)
+
+#### New raster 
+dir.create(paste0(out_path, crop, '/GROC/summary'))
+
+GROC_all <- Total_var %>% 
+  names %>% 
+  .[23:28] %>%
+  as.list() %>%
+  lapply(., rasterize_masa,  data = Total_var, raster = pdate) %>% 
+  stack %>% 
+  set_names(tbl %>%  
+              names  %>% 
+              .[23:28])
+
+
+
+
+GROC_all %>% mean
+
+writeRaster(x = GROC_all %>% mean, filename =  paste0(out_path, crop, '/GROC/summary/GROC_mean.tif'))
+
+GROC_all %>% mean %>% rasterVis::gplot(.) + 
+  geom_tile(aes(fill = value)) + 
+  u + 
+  coord_equal() +
+  labs(x="Longitude",y="Latitude", fill = " ")   +
+  scale_fill_distiller(palette = "RdYlGn", na.value="white", direction = 1) + 
+  scale_x_continuous(breaks = ewbrks, labels = ewlbls, expand = c(0, 0)) +
+  scale_y_continuous(breaks = nsbrks, labels = nslbls, expand = c(0, 0)) +
+  theme_bw() + theme(panel.background=element_rect(fill="white",colour="black")) 
+
+ggsave( paste0(out_path ,crop,'/GROC/summary/GROC_mean.png'), width = 8, height = 3.5)
+
+
+
+
+GROC_all %>% min
+writeRaster(x = GROC_all %>% min, filename =  paste0(out_path, crop, '/GROC/summary/GROC_mim.tif'))
+
+GROC_all %>% min %>% rasterVis::gplot(.) + 
+  geom_tile(aes(fill = value)) + 
+  u + 
+  coord_equal() +
+  labs(x="Longitude",y="Latitude", fill = " ")   +
+  scale_fill_distiller(palette = "RdYlGn", na.value="white", direction = 1) + 
+  scale_x_continuous(breaks = ewbrks, labels = ewlbls, expand = c(0, 0)) +
+  scale_y_continuous(breaks = nsbrks, labels = nslbls, expand = c(0, 0)) +
+  theme_bw() + theme(panel.background=element_rect(fill="white",colour="black")) 
+
+ggsave( paste0(out_path ,crop,'/GROC/summary/GROC_min.png'), width = 8, height = 3.5)
+
+
+
+
+
+
+
+#### variograms and correlations.   
+
+
+Total_var %>% 
+  names %>% 
+  .[23:28] %>% 
+  as.list() %>% 
+  lapply(all_variograms, tbl = Total_var)
+
+
+
+
+##########          Correlations      ########## 
+
+
+ngb <- 3
+RI <- corLocal(GROC_all %>% min, all_inf$gap, ngb= ngb,   method = "pearson" )  
+
+RI %>% 
+  rasterVis::gplot(.) + 
+  geom_tile(aes(fill = value)) + 
+  u + 
+  coord_equal() +
+  labs(x="Longitude",y="Latitude", fill = " ")   +
+  scale_fill_distiller(palette = "RdBu", na.value="white") + 
+  scale_x_continuous(breaks = ewbrks, labels = ewlbls, expand = c(0, 0)) +
+  scale_y_continuous(breaks = nsbrks, labels = nslbls, expand = c(0, 0)) +
+  theme_bw() + theme(panel.background=element_rect(fill="white",colour="black")) 
+
+
+ggsave( paste0(out_path, crop,'/GROC/summary/Cor_min_gap_ngb_',ngb, '.png'), width = 8, height = 3.5)
+writeRaster(x = RI, filename = paste0(out_path,crop,'/GROC/summary/Cor_min_gap_ngb_',ngb,'.tif'))
+
+
+(RI > 0.5) %>% 
+  rasterVis::gplot(.) + 
+  geom_tile(aes(fill = value)) + 
+  u + 
+  coord_equal() +
+  labs(x="Longitude",y="Latitude", fill = " ")   +
+  scale_fill_distiller(palette =  "Blues", na.value="white", direction = 1) + 
+  scale_x_continuous(breaks = ewbrks, labels = ewlbls, expand = c(0, 0)) +
+  scale_y_continuous(breaks = nsbrks, labels = nslbls, expand = c(0, 0)) +
+  theme_bw() + theme(panel.background=element_rect(fill="white",colour="black"), legend.position = 'none') 
+
+ggsave( paste0(out_path ,crop,'/GROC/summary/Cor_min_gap5_ngb_',ngb, '.png'), width = 8, height = 3.5)
 
 
 
