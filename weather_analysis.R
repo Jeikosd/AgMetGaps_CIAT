@@ -449,8 +449,6 @@ v <- values(f)
 
 
 
-
-<<<<<<< HEAD
 ###
 ## code to make time series climate from chirps for each point in the calendar polygons
 
@@ -461,6 +459,7 @@ library(future)
 library(velox)
 library(sf)
 library(tictoc)
+library(future.apply)
 
 chirps_path <- '/mnt/data_cluster_4/observed/gridded_products/chirps/daily/'
 chirps_file <- list.files(chirps_path, pattern = '.tif$', full.names = T)
@@ -503,16 +502,16 @@ x <- raster_files %>%
 
 
 local_cpu <- rep("localhost", availableCores() - 1)
-# external_cpu <- rep("caribe.ciat.cgiar.org", 8)  # server donde trabaja Alejandra
-external_cpu <- rep("climate.ciat.cgiar.org", each = 10)
+external_cpu <- rep("caribe.ciat.cgiar.org", 8)  # server donde trabaja Alejandra
+# external_cpu <- rep("climate.ciat.cgiar.org", each = 10)
 
 workers <- c(local_cpu, external_cpu)
-
+options(future.globals.maxSize= 891289600)
 # plan(multisession, workers = 10)
 plan(cluster, workers = workers)
 
 # plan(list(tweak(cluster, workers = workers), multicore))
-options(future.globals.maxSize= 891289600)
+
 extract_chirps <- listenv::listenv()
 tic("extract the chirps information")
 extract_chirps <- future::future_lapply(x, FUN = extract_velox, points = geo_files, out_file) 
@@ -534,23 +533,53 @@ mean_point <- function(x){
 
 extract_velox <- function(file, points, out_file){
   
-  file <- x[1:2000]
-  # points <- geo_files
+  file <- x[1:600]
+  points <- geo_files
   
-  tic('unparalelized stack')
-  stk <- purrr::map(.x = file, .f = raster) %>%
-    raster::stack()
-  toc()
+  
+  # velox(list(velox(x[1], velox[2])))
+  # tic("parallel future")
+  # vx_raster <- future.apply::future_lapply(X = file, FUN = velox::velox) %>%
+  # velox()
+  
+  
+  # toc()
+  
+  
+  # velox(list(velox(x[1], velox[2])))
+  # tic("parallel future")
+  # vx_raster <- future.apply::future_lapply(X = file, FUN = raster) %>%
+  # velox()
+  
+  
+  # toc()
+  
+  
+  
+  # tic('unparalelized stack')
+  # stk <- purrr::map(.x = file, .f = raster) %>%
+  #   raster::stack()
+  # 
+  # vx_raster <- velox::velox(stk)
+  # toc()
+  
+  # tic('unparalelized velox list')
+  # stk <- purrr::map(.x = file, .f = velox::velox) %>%
+  #   velox()
+  # 
+  # toc()
+  
   
   ## paralelizar esta parte
-  plan(multisession)
-  tic('parallel stack')
-  stk <- purrr::map(.x = file, .f = ~future(raster(.x))) %>%
+  # plan(multisession)
+  velox(file[1], extent=c(0,1,0,1))
+  tic('parallel map velox')
+  vx_raster <- purrr::map(.x = file, .f = ~future(velox(.x))) %>%
     future::values() %>%
-    raster::stack()
+    velox()
   toc()
   
-  vx_raster <- velox::velox(stk)
+  # vx_raster <- velox::velox(stk)
   
   
   # coords <- sp::coordinates(points) %>%
@@ -558,83 +587,58 @@ extract_velox <- function(file, points, out_file){
   #   dplyr::rename(lat = V1, 
   #                 long = V2)
   
+  coords <- points  %>% 
+    st_set_geometry(NULL) %>%
+    dplyr::select(lat, long) %>%
+    as_tibble()
+  
   
   # 
   date_raster <- purrr::map(.x = file, .f = extract_date) %>%
     purrr::map(.x = ., .f = as_tibble) %>%
     bind_rows() %>%
     pull()
-  mutate(id = as_factor(paste0('day_', 1:nrow(.)))) %>%
-    tidyr::spread(id, value) %>%
-    
-    
-    
-    values <- vx_raster$extract(points, fun = mean_point) %>%
-    tbl_df() %>%
-    purrr::set_names(date_raster)
+  # mutate(id = as_factor(paste0('day_', 1:nrow(.)))) %>%
+  # tidyr::spread(id, value) %>%
   
-  column_names <- dplyr::tbl_vars(values) 
+  
+  
+  ## agregarle lat y long mejor
+  tic('unparallelized extract velox')
+  values <- vx_raster$extract(points, fun = mean_point) %>%
+    tbl_df() %>%
+    purrr::set_names(date_raster) %>%
+    mutate(id = 1:nrow(.))
+  toc()
+  
+  ## podemos hacer esta parte en paralelo
+  fast_extract <- function( points, x, fun){
+    x$extract(points, fun = fun) %>%
+      tbl_df()
+  }
+  
+  
+  fast_extract(y, points[1, ], fun = mean_point)
+  
+  future.apply::future_lapply(X = points, FUN = fast_extract, y, mean_point)
+  z <- purrr::map(.x = points, .f = ~future(fast_extract(y, .x, fun = mean_point))) %>%
+    future::values() 
+  format(object.size(y), units = "GiB")
+  
+  
+  ##
+  ## agregacion por pixel
+  
+  coords <- filter(coords, row_number() == 1)
+  by_pixel <- filter(values, row_number() == 1) %>%  
+    tidyr::gather(date, precip, -id) %>%
+    cbind(coords)
+  
+  
+  
+  # column_names <- dplyr::tbl_vars(values) 
   
   write_csv(values, path = paste0(out_file, daily_day, '.csv'))
   
   return(values)
 }
-
-
-=======
-
-
-
-fst_files <- list.files(path = path, full.names = TRUE, pattern = '*.fst$')
-out_path <- '/mnt/workspace_cluster_9/AgMetGaps/weather_analysis/precipitation_points/weather_stations/'
-
-fst_pixel <- function(path, pixel){
-  
-  fst::read.fst(path, from = pixel, to = pixel, as.data.table = TRUE)
-  
-}
-
-make_Wstation <- function(pixel, path, out_path){
-  
-  station <- purrr::map(.x = path, .f = fst_pixel, pixel) %>%
-    bind_rows()
-  
-  fst::write.fst(station, paste0(out_path, 'daily_pixel_', pixel, ".fst"))
-  rm(station)
-  gc()
-  
-}
-
-
-# tic("future lapply weather station chirps")
-# y <- future::future_lapply(x = 1:100, FUN = make_Wstation, fst_files[1:1000])  # esta es rapido
-# toc()
-
-
-tic("future lapply weather station chirps")
-extract_Wstation(fst_files, out_path)
-toc()
-
-num_pixel <- fst::read.fst(fst_files[1]) %>%
-  dim() %>%
-  magrittr::extract(1)
-
-tic("future lapply weather station chirps")
-future::future_lapply(x = 1:num_pixel, FUN = make_Wstation, fst_files, out_path) 
-toc()
-extract_Wstation <- function(path, out_path){
-  
-  num_pixel <- fst::read.fst(path[1]) %>%
-    dim() %>%
-    magrittr::extract(1)
-  
-  future::future_lapply(x = 1:num_pixel, FUN = make_Wstation, path, out_path) 
-  # strategy <- "future::multisession"
-  
-  
-  
-}
-
-
-
->>>>>>> c8922aa8b37c228347b5449e236e27c40e8f1dac
