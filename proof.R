@@ -634,21 +634,22 @@ prueba <- function(chirps_file, start_plant, end_plant, points_coord){
     ## cargar los puntos que se van a utilizar para extraer
     
     
-    local_cpu <- rep("localhost", availableCores() - 1)
-    external_cpu <- rep("caribe.ciat.cgiar.org", 8)  # server donde trabaja Alejandra
+    # local_cpu <- rep("localhost", availableCores() - 1)
+    # external_cpu <- rep("caribe.ciat.cgiar.org", 8)  # server donde trabaja Alejandra
     # external_cpu <- rep("climate.ciat.cgiar.org", each = 10)
     
-    workers <- c(local_cpu, external_cpu)
-    options(future.globals.maxSize= 891289600)
-    # plan(multisession, workers = 10)
-    plan(cluster, workers = workers)
+    # workers <- c(local_cpu, external_cpu)
+    # options(future.globals.maxSize= 891289600)
+    options(future.globals.maxSize = 31912896000)
+    plan(multisession, workers = 10)
+    # plan(cluster, workers = workers)
     
     # plan(list(tweak(cluster, workers = workers), multicore))
     
-    extract_chirps <- listenv::listenv()
-    tic("extract the chirps information")
-    extract_chirps <- future::future_lapply(x, FUN = extract_velox, points = geo_files, out_file) 
-    toc()
+    # extract_chirps <- listenv::listenv()
+    # tic("extract the chirps information")
+    # extract_chirps <- future::future_lapply(x, FUN = extract_velox, points = geo_files, out_file) 
+    # toc()
     
     
     # strategy <- "future::multisession"
@@ -662,11 +663,45 @@ prueba <- function(chirps_file, start_plant, end_plant, points_coord){
       mean(x, na.rm = T)
       
     }
+    distribute_load(x = 25000, n = 10)
     
+    
+    distribute_load <- function(x, n = get_number_of_threads()) {
+      assertthat::assert_that(assertthat::is.count(x),
+                              assertthat::is.count(n),
+                              isTRUE(x > 0),
+                              isTRUE(n > 0))
+      if (n == 1) {
+        i <- list(seq_len(x))
+      } else if (x <= n) {
+        i <- as.list(seq_len(x))
+      } else {
+        j <- as.integer(floor(seq(1, n+1 , length.out = x + 1)))
+        i <- list()
+        for (k in seq_len(n)) {
+          i[[k]] <- which(j == k)
+        }
+      }
+      
+      i
+    }
+    
+    
+    stack_future <- function(x) {
+      
+      x <- future.apply::future_lapply(X = x, FUN = raster) %>%
+        raster::stack(x) %>%
+        velox::velox()
+      
+      return(x)
+      
+      
+    }
+    da
     
     extract_velox <- function(file, points, out_file){
       
-      file <- x[1:2000]
+      file <- x[1:500]
       points <- geo_files
       
       
@@ -706,6 +741,8 @@ prueba <- function(chirps_file, start_plant, end_plant, points_coord){
       ## paralelizar esta parte
       # plan(multisession)
       # velox(file[1], extent=c(0,1,0,1))
+      plan(multisession, workers = 10)
+      plan(list(tweak(multisession, workers = 2), tweak(multisession, workers = 4)))
       tic('parallel map raster')
       vx_raster <- purrr::map(.x = file, .f = ~future(raster(.x))) %>%
         future::values() %>%
@@ -720,11 +757,20 @@ prueba <- function(chirps_file, start_plant, end_plant, points_coord){
       files <- purrr::map(.x = l, .f = function(l, x) x[l], file)
   
       tic('parallel balancing velox')
-      vx_raster <- purrr::map(.x = files, .f = ~future(velox(raster::stack(.x)))) %>%
-        future::values() %>%
+      # vx_raster <- purrr::map(.x = files, .f = ~future(velox(raster::stack(.x)))) %>%
+      vx_raster <- future.apply::future_lapply(X = files, FUN = function(x) velox(raster::stack(x))) %>%
+        # future::values() %>%
         velox::velox()
       toc() 
       
+      stack_future 
+      
+      tic('parallel balancing velox')
+      # vx_raster <- purrr::map(.x = files, .f = ~future(velox(raster::stack(.x)))) %>%
+      vx_raster <- future.apply::future_lapply(X = files, FUN = stack_future) %>%
+        # future::values() %>%
+        velox::velox()
+      toc() 
       
       m <- plyr::llply(distribute_load(length(y)), .parallel = TRUE,
                        function(i) {
