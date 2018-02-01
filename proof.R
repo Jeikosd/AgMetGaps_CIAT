@@ -641,7 +641,7 @@ prueba <- function(chirps_file, start_plant, end_plant, points_coord){
     # workers <- c(local_cpu, external_cpu)
     # options(future.globals.maxSize= 891289600)
     options(future.globals.maxSize = 31912896000)
-    plan(multisession, workers = 10)
+    # plan(multisession, workers = 10)
     # plan(cluster, workers = workers)
     
     # plan(list(tweak(cluster, workers = workers), multicore))
@@ -686,22 +686,64 @@ prueba <- function(chirps_file, start_plant, end_plant, points_coord){
       i
     }
     
-    
-    stack_future <- function(x) {
+    stack_future(files[[1]], geo_files)
+    stack_future <- function(x, geo_files) {
       
-      x <- future.apply::future_lapply(X = x, FUN = raster) %>%
+      # x <- files[[1]]
+      # 
+      
+      stk_vx <- future.apply::future_lapply(X = x, FUN = raster) %>%
         raster::stack(x) %>%
         velox::velox()
       
-      return(x)
+      
+      
+      # x <- lapply(X = x, FUN = raster) %>%
+      #   raster::stack(x) %>%
+      #   velox::velox()
+
+      
+      date_raster <- purrr::map(.x =  x, .f = extract_date) %>%
+        purrr::map(.x = ., .f = as_tibble) %>%
+        bind_rows() %>%
+        pull()
+      
+      coords <- geo_files  %>% 
+        st_set_geometry(NULL) %>%
+        dplyr::select(lat, long) %>%
+        as_tibble()
+      
+      values <-  stk_vx$extract(geo_files, fun = mean_point) %>%
+        tbl_df() %>%
+        purrr::set_names(date_raster) %>%
+        mutate(id = 1:nrow(.))
+      
+
+      
+      # y <- list()
+      values <- bind_cols(coords, values) %>%
+        dplyr::select(id, everything()) # %>%
+        # tidyr::gather(date, precip, -id, -lat, -long)
+      # %>%
+        # tidyr::nest(-id, -lat, -long)
+      
+      rm(stk_vx)
+      rm(date_raster)
+      rm(coords)
+      gc(reset = T)
+      
+      return(values )
       
       
     }
-    da
+    
+    y %>%
+      purrr::reduce(left_join, by = c('id', 'lat', 'long'))
+    
     
     extract_velox <- function(file, points, out_file){
       
-      file <- x[1:500]
+      file <- x[1:200]
       points <- geo_files
       
       
@@ -741,8 +783,9 @@ prueba <- function(chirps_file, start_plant, end_plant, points_coord){
       ## paralelizar esta parte
       # plan(multisession)
       # velox(file[1], extent=c(0,1,0,1))
-      plan(multisession, workers = 10)
-      plan(list(tweak(multisession, workers = 2), tweak(multisession, workers = 4)))
+      # plan(multisession, workers = 10)
+      plan(sequential)
+      plan(list(tweak(multisession, workers = 2), tweak(multisession, workers = 2)))
       tic('parallel map raster')
       vx_raster <- purrr::map(.x = file, .f = ~future(raster(.x))) %>%
         future::values() %>%
@@ -763,14 +806,17 @@ prueba <- function(chirps_file, start_plant, end_plant, points_coord){
         velox::velox()
       toc() 
       
-      stack_future 
+    
       
       tic('parallel balancing velox')
       # vx_raster <- purrr::map(.x = files, .f = ~future(velox(raster::stack(.x)))) %>%
-      vx_raster <- future.apply::future_lapply(X = files, FUN = stack_future) %>%
+      vx_raster <- future.apply::future_lapply(X = files, FUN = stack_future, geo_files) # %>%
         # future::values() %>%
-        velox::velox()
+        # velox::velox()
       toc() 
+      
+      vx_raster %>%
+        purrr::reduce(left_join, by = c('id', 'lat', 'long'))
       
       m <- plyr::llply(distribute_load(length(y)), .parallel = TRUE,
                        function(i) {
