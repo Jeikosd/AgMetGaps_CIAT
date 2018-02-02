@@ -832,9 +832,9 @@ COB1 %>% write.csv(file = paste0('monthly_out/', crop, '/summary.csv'), row.name
 
 
 # clean memory 
-gc(verbose = TRUE)
-gc(reset = TRUE)
-rm(list = ls())
+#gc(verbose = TRUE)
+#gc(reset = TRUE)
+#rm(list = ls())
 
 
 
@@ -946,7 +946,8 @@ all_inf <- tbl %>%
   stack %>% 
   set_names(tbl %>%  
               names  %>% 
-              .[-(1:3)])
+              .[-(1:3)]) ## if we have a problems... remplace this line for 
+# stats::setNames(tbl %>%  names  %>% .[-(1:3)] )
 
 
 
@@ -1012,7 +1013,7 @@ df <- all_inf %>%
   names %>% 
   as.tibble() %>% 
   slice(-n()) %>% 
-  mutate(pixelC =  purrr::map(.x = value, .f = correlations_exp ,.y = 'gap', data = all_inf))
+  mutate(pixelC =  purrr::map(.x = value, .f = correlations_exp ,.y = 'gap', data = all_inf, ngb = 3))
 
 
 
@@ -1053,7 +1054,7 @@ abs_C1 %>%
   theme_bw() + theme(panel.background=element_rect(fill="white",colour="black")) 
 
 
-ggsave(paste0('monthly_out/',crop,'/correlations/cor_max_02.png'), width = 10, height = 4)
+ggsave(paste0(out_path,crop,'/correlations/cor_max_02.png'), width = 10, height = 4)
 
 
 
@@ -1070,7 +1071,7 @@ ggsave(paste0('monthly_out/',crop,'/correlations/cor_max_02.png'), width = 10, h
   theme_bw() + theme(panel.background=element_rect(fill="white",colour="black")) 
 
 
-ggsave(paste0('monthly_out/',crop,'/correlations/cor_max_02_6var.png'), width = 10, height = 4)
+ggsave(paste0(out_path,crop,'/correlations/cor_max_02_6var.png'), width = 10, height = 4)
 
 
 
@@ -1098,7 +1099,7 @@ scatter_graphs <- function(.x, .y, proof){
          subtitle = paste0('Pearson = ', round(cor(proof[,.x], proof[,.y]),3), '    -   Spearman = ', round(cor(proof[,.x], proof[,.y], method = 'spearman'),3))) + 
     theme_bw() 
   
-  ggsave(filename = paste0('monthly_out/rice/dispersion/',.x, '_', .y, '.png'))
+  ggsave(filename = paste0(out_path,crop, '/dispersion/',.x, '_', .y, '.png'))
 }
 
 
@@ -1196,6 +1197,99 @@ res.pca$ind$coord %>%
   .[,1:2] %>% 
   cbind.data.frame(gap = tbl$gap) %>%
   plot
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#############################################################################
+################### Create calendar to extract the GROC. 
+
+
+table_seasons <- inner_join(pdate_points, hdate_points)   %>% 
+  select(-julian.start, -julian.h) %>% 
+  mutate(flor = purrr::map2(.x = Planting, .y = harvest, .f = compute_flor)) %>% 
+  unnest() %>% 
+  select(x, y, Planting, flor, harvest)
+
+
+
+## rasterize the calendar 
+
+
+calendarR <- function(var, x, raster){
+  
+  points <- x %>%
+    select(long, lat) %>%
+    data.frame 
+  
+  vals <- x %>%
+    dplyr::select(!!var) %>%
+    magrittr::extract2(1)
+  
+  y <- rasterize(points, raster, vals, fun = sum)
+  
+  ### Lectura del shp
+  shp <- shapefile(paste("/mnt/workspace_cluster_9/AgMetGaps/Inputs/shp/mapa_mundi.shp",sep="")) %>% 
+    crop(extent(-180, 180, -50, 50))
+  
+  u <- borders(shp, colour="black")
+  
+  
+  myPalette <-  colorRampPalette(c("navyblue","#2166AC", "dodgerblue3","lightblue", "lightcyan",  "white",  "yellow","orange", "orangered","#B2182B", "red4"))
+  
+  ewbrks <- c(seq(-180,0,45), seq(0, 180, 45))
+  nsbrks <- seq(-50,50,25)
+  ewlbls <- unlist(lapply(ewbrks, function(x) ifelse(x < 0, paste(abs(x), "°W"), ifelse(x > 0, paste( abs(x), "°E"),x))))
+  nslbls <- unlist(lapply(nsbrks, function(x) ifelse(x < 0, paste(abs(x), "°S"), ifelse(x > 0, paste(abs(x), "°N"),x))))
+  
+  # Blues<-colorRampPalette(c('#fff7fb','#ece7f2' ,'#edf8b1','#9ecae1', '#7fcdbb','#2c7fb8','#a6bddb','#1c9099','#addd8e', '#31a354'))
+  Blues<-colorRampPalette(c('#fff7fb','#ece7f2','#d0d1e6','#a6bddb','#74a9cf','#3690c0','#0570b0','#045a8d','#023858','#233159'))
+  
+  
+  rasterVis::gplot(y) + 
+    geom_tile(aes(fill = value)) + 
+    u + 
+    coord_equal() +
+    labs(x="Longitude",y="Latitude", fill = " ")   +
+    scale_fill_gradientn(colours =Blues(100), na.value="white") +
+    scale_x_continuous(breaks = ewbrks, labels = ewlbls, expand = c(0, 0)) +
+    scale_y_continuous(breaks = nsbrks, labels = nslbls, expand = c(0, 0)) +
+    theme_bw() + theme(panel.background=element_rect(fill="white",colour="black")) 
+  
+  file_name <- paste0(out_path , crop, '/Mcalendar_', var)
+  ggsave(paste0( file_name, '.png'), width = 10, height = 4)
+  writeRaster(y,  paste0( file_name, '.tif'))
+  
+  return(y)}
+
+
+
+table_seasons %>%
+  rename(lat = y, long = x)
+
+
+
+table_seasons %>%
+  rename(lat = y, long = x) %>% 
+  names %>% 
+  .[-(1:2)] %>% 
+  # as.list() %>% 
+  as.tibble() %>% 
+  mutate(calendars = purrr::map(.x = value, .f = calendarR, x = table_seasons %>%
+                                  rename(lat = y, long = x) , raster = pdate))
+
+
+
 
 
 
@@ -1426,14 +1520,100 @@ ggsave( paste0(out_path ,crop,'/GROC/summary/Cor_min_gap5_ngb_',ngb, '.png'), wi
 
 
 
-##############################################################################
-########### Tengo el harvest y los rendimientos potenciales... 
-########### deberia evaluar si estan correlacionados o no? --- se van a realizar pruebas la proxima semana
-########### 
 
 
 
 
+
+
+
+####################################################################################################
+####################################################################################################
+####################################################################################################
+############################ First work with GWmodel
+
+##################################################
+############## listo ahora se supone puedo probar tambien para maiz lo de que sigue? --- excelente pregunta
+##################################################
+
+
+tbl <- read.csv(paste0('monthly_out/',crop,'/summary.csv')) # read database in case we don't have it in memory
+
+
+
+rasterize_masa <-  function(var, data, raster){
+  points <- data %>%
+    select(long, lat) %>%
+    data.frame 
+  
+  
+  vals <- data %>%
+    select(!!var) %>%
+    magrittr::extract2(1)
+  
+  y <- rasterize(points, raster, vals, fun = sum)
+  return(y)}
+
+
+##### create a raster stack object with the all variables to the data set 
+all_inf <- tbl %>% 
+  names %>%
+  .[-(1:3)] %>%
+  as.list() %>%
+  lapply(., rasterize_masa,  data = tbl, raster = pdate) %>% 
+  stack %>% 
+  stats::setNames(tbl %>%  names  %>% .[-(1:3)] )
+
+
+
+all_inf %>% names
+
+library("RColorBrewer")
+map.na = list("SpatialPolygonsRescale", layout.north.arrow(),
+              offset = c(329000, 261500), scale = 4000, col = 1)
+map.scale.1 = list("SpatialPolygonsRescale", layout.scale.bar(),
+                   offset = c(326500, 217000), scale = 5000, col = 1,
+                   fill = c("transparent", "blue"))
+map.scale.2 = list("sp.text", c(326500, 217900), "0", cex = 0.9, col = 1)
+map.scale.3 = list("sp.text", c(331500, 217900), "5km", cex = 0.9, col = 1)
+map.layout <- list(map.na, map.scale.1, map.scale.2, map.scale.3)
+mypalette.1 <- brewer.pal(8, "Reds")
+mypalette.2 <- brewer.pal(5, "Blues")
+mypalette.3 <- brewer.pal(6, "Greens")
+
+
+
+# Load the GWPCA functions....
+
+library(GWmodel)
+
+## Creando el patron espacial primero... haber como sale la cosa para maíz 
+
+# Rp <- rasterToPolygons(all_inf)
+
+#Rp@
+Rp1 <-   Rp1 <- all_inf[[c('a.cv.prec', 'b.cv.prec', 'c.cv.prec', 'a.cv.temp', 'b.cv.temp', 'c.cv.temp')]] %>% rasterToPoints()
+# Rp %>% colnames  - P1 = Polygon(coords = Rp[,1:2])
+
+
+
+Data.scaled <- scale(as.matrix(Rp1[,-(1:2)]))
+
+pca.basic <- princomp(Data.scaled, cor = F) # generalized pca
+(pca.basic$sdev^2 / sum(pca.basic$sdev^2))*100 # % var
+
+pca.basic$loadings
+
+R.COV <- covMcd(Data.scaled, cor = F, alpha = 0.75)
+
+
+Coords <- Rp1[,1:2]
+Data.scaled.spdf <-  SpatialPointsDataFrame(Coords,as.data.frame(Data.scaled))
+
+
+
+bw.gwpca.basic <- bw.gwpca(Data.scaled.spdf,
+                           vars = colnames(Data.scaled.spdf@data), k = 3, robust = FALSE, adaptive = TRUE)
 
 
 
