@@ -1532,10 +1532,187 @@ ggsave( paste0(out_path ,crop,'/GROC/summary/Cor_min_gap5_ngb_',ngb, '.png'), wi
 ####################################################################################################
 ############################ First work with GWmodel
 
+
 ##################################################
 ############## listo ahora se supone puedo probar tambien para maiz lo de que sigue? --- excelente pregunta
 ##################################################
 
+
+tbl <- read.csv(paste0('monthly_out/',crop,'/summary.csv')) # read database in case we don't have it in memory
+
+
+
+rasterize_masa <-  function(var, data, raster){
+  points <- data %>%
+    select(long, lat) %>%
+    data.frame 
+  
+  
+  vals <- data %>%
+    select(!!var) %>%
+    magrittr::extract2(1)
+  
+  y <- rasterize(points, raster, vals, fun = sum)
+  return(y)}
+
+
+##### create a raster stack object with the all variables to the data set 
+all_inf <- tbl %>% 
+  names %>%
+  .[-(1:3)] %>%
+  as.list() %>%
+  lapply(., rasterize_masa,  data = tbl, raster = pdate) %>% 
+  stack %>% 
+  stats::setNames(tbl %>%  names  %>% .[-(1:3)] )
+
+
+
+all_inf %>% names
+
+library("RColorBrewer")
+map.na = list("SpatialPolygonsRescale", layout.north.arrow(),
+              offset = c(329000, 261500), scale = 4000, col = 1)
+map.scale.1 = list("SpatialPolygonsRescale", layout.scale.bar(),
+                   offset = c(326500, 217000), scale = 5000, col = 1,
+                   fill = c("transparent", "blue"))
+map.scale.2 = list("sp.text", c(326500, 217900), "0", cex = 0.9, col = 1)
+map.scale.3 = list("sp.text", c(331500, 217900), "5km", cex = 0.9, col = 1)
+map.layout <- list(map.na, map.scale.1, map.scale.2, map.scale.3)
+mypalette.1 <- brewer.pal(8, "Reds")
+mypalette.2 <- brewer.pal(5, "Blues")
+mypalette.3 <- brewer.pal(6, "Greens")
+
+
+
+# Load the GWPCA functions....
+
+library(GWmodel)
+
+## Creando el patron espacial primero... haber como sale la cosa para maíz 
+
+# Rp <- rasterToPolygons(all_inf)
+
+#Rp@
+Rp1 <-   Rp1 <- all_inf[[c('a.cv.prec', 'b.cv.prec', 'c.cv.prec', 'a.cv.temp', 'b.cv.temp', 'c.cv.temp')]] %>% 
+  rasterToPoints()
+
+# Rp %>% colnames  - P1 = Polygon(coords = Rp[,1:2])
+
+
+
+Data.scaled <- scale(as.matrix(Rp1[,-(1:2)])) # sd
+
+pca.basic <- princomp(Data.scaled, cor = F) # generalized pca
+(pca.basic$sdev^2 / sum(pca.basic$sdev^2))*100 # % var
+
+pca.basic$loadings
+
+R.COV <- covMcd(Data.scaled, cor = F, alpha = 0.75)
+
+
+Coords <- Rp1[,1:2]
+Data.scaled.spdf <-  SpatialPointsDataFrame(Coords,as.data.frame(Data.scaled))
+
+
+
+### toca correr desde aqui de nuevo
+bw.gwpca.basic <- bw.gwpca(Data.scaled.spdf,
+                           vars = colnames(Data.scaled.spdf@data), k = 6, robust = FALSE, adaptive = TRUE)
+
+
+
+
+
+gwpca.basic <- gwpca(Data.scaled.spdf,
+                     vars = colnames(Data.scaled.spdf@data), bw = bw.gwpca.basic, k = 6,
+                     robust = FALSE, adaptive = TRUE)
+
+
+prop.var <- function(gwpca.obj, n.components) {
+  return((rowSums(gwpca.obj$var[, 1:n.components])/
+            rowSums(gwpca.obj$var))*100) }
+
+var.gwpca.basic <- prop.var(gwpca.basic, 2)
+
+gwpca.basic %>% str
+
+Data.scaled.spdf$var.gwpca.basic <- var.gwpca.basic
+
+
+mypalette.4 <-brewer.pal(8, "YlGnBu")
+spplot(Data.scaled.spdf, "var.gwpca.basic", key.space = "right",
+       col.regions = mypalette.4, cuts = 7,
+       main = "PTV for local components 1 to 2 (basic GW PCA)",
+       sp.layout = map.layout)
+
+
+
+loadings.pc1.basic <- gwpca.basic$loadings[,,1]
+loadings.pc2.basic <- gwpca.basic$loadings[,,2]
+
+
+varpca1 = max.col(abs(loadings.pc1.basic))
+varpca2 = max.col(abs(loadings.pc2.basic))
+
+# Data.scaled.spdf$win.item.basic <- win.item.basic
+Data.scaled.spdf$varpca1 <- varpca1
+Data.scaled.spdf$varpca2 <- varpca2
+
+
+mypalette.5 <- c("lightpink", "blue", "grey", "purple",
+                 "orange", "green")
+
+
+spplot(Data.scaled.spdf, "varpca1", key.space = "right",
+       # col.regions = mypalette.5, at = c(1, 2, 3, 4, 5, 6, 7 ),
+       main = "Winning variable: highest abs. loading on local Comp.1 (basic)",
+       colorkey = T, sp.layout = map.layout)
+
+spplot(Data.scaled.spdf, "varpca2", key.space = "right",
+       # col.regions = mypalette.5, at = c(1, 2, 3, 4, 5, 6, 7 ),
+       main = "Winning variable: highest abs. loading on local Comp.2 (basic)",
+       colorkey = T, sp.layout = map.layout)
+
+
+Data.scaled.spdf$gap <- rasterToPoints(all_inf$gap)[, 'gap']
+bw.gwr.1 <- bw.gwr(gap ~ a.cv.prec + b.cv.prec + c.cv.prec + a.cv.temp + b.cv.temp+ c.cv.temp, data = Data.scaled.spdf, approach = "AICc",
+                   kernel = "gaussian")
+
+
+
+
+
+
+win.item.basic = max.col(abs(loadings.pc1.basic))
+
+Data.scaled.spdf$win.item.basic <- win.item.basic
+mypalette.5 <- c("lightpink", "blue", "grey", "purple",
+                 "orange", "green")
+
+
+spplot(Data.scaled.spdf, "win.item.basic", key.space = "right",
+       col.regions = mypalette.5, at = c(1, 2, 3, 4, 5, 6),
+       main = "Winning variable: highest abs. loading on local Comp.1 (basic)",
+       colorkey = F, sp.layout = map.layout)
+
+
+gap <- rasterToPoints(all_inf$gap)[, 'gap']
+Data.scaled.spdf$gap <- gap
+
+
+
+variables <- all_inf[[c('a.cv.prec', 'b.cv.prec', 'c.cv.prec', 'a.cv.temp', 'b.cv.temp', 'c.cv.temp', 'gap')]] %>% 
+  rasterToPoints()
+
+variables_ <- variables[,-(1:2)] # sd
+Coords <-  variables[, (1:2)]
+variables_sp <-  SpatialPointsDataFrame(Coords, data.frame(variables_))
+names(variables_sp)
+bw.gwr.1 <- bw.gwr(gap ~ a.cv.prec + b.cv.prec + c.cv.prec + a.cv.temp + b.cv.temp + c.cv.temp, data = variables_sp)
+# 26.47315
+gwr.res <- gwr.basic(gap ~ a.cv.prec + b.cv.prec + c.cv.prec + a.cv.temp + b.cv.temp + c.cv.temp, data = variables_sp,
+                     bw = bw.gwr.1, kernel = "gaussian", F123.test = TRUE)
+print(gwr.res)
 
 tbl <- read.csv(paste0('monthly_out/',crop,'/summary.csv')) # read database in case we don't have it in memory
 
@@ -1614,6 +1791,35 @@ Data.scaled.spdf <-  SpatialPointsDataFrame(Coords,as.data.frame(Data.scaled))
 
 bw.gwpca.basic <- bw.gwpca(Data.scaled.spdf,
                            vars = colnames(Data.scaled.spdf@data), k = 3, robust = FALSE, adaptive = TRUE)
+
+
+
+
+gwpca.basic <- gwpca(Data.scaled.spdf,
+                     vars = colnames(Data.scaled.spdf@data), bw = bw.gwpca.basic, k = 3,
+                     robust = FALSE, adaptive = TRUE)
+
+
+
+
+###############
+#prop.var <- function(gwpca.obj, n.components) {
+#  return((rowSums(gwpca.obj$var[, 1:n.components])/
+#            rowSums(gwpca.obj$var))*100) }
+
+#var.gwpca.basic <- prop.var(gwpca.basic, 3)
+#Rp2 <- Rp1
+#Rp2$var.gwpca.basic <- var.gwpca.basic
+#mypalette.4 <-brewer.pal(8, "YlGnBu")
+#spplot(Dub.voter, "var.gwpca.basic", key.space = "right",
+#       col.regions = mypalette.4, cuts = 7,
+#       main = "PTV for local components 1 to 3 (basic GW PCA)",
+#       sp.layout = map.layout)
+
+
+
+loadings.pc1.basic <- gwpca.basic$loadings[,,1]
+win.item.basic = max.col(abs(loadings.pc1.basic))
 
 
 
