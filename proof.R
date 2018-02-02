@@ -666,7 +666,7 @@ prueba <- function(chirps_file, start_plant, end_plant, points_coord){
     distribute_load(x = 25000, n = 10)
     
     
-    distribute_load <- function(x, n = get_number_of_threads()) {
+    distribute_load <- function(x, n) {
       assertthat::assert_that(assertthat::is.count(x),
                               assertthat::is.count(n),
                               isTRUE(x > 0),
@@ -676,7 +676,7 @@ prueba <- function(chirps_file, start_plant, end_plant, points_coord){
       } else if (x <= n) {
         i <- as.list(seq_len(x))
       } else {
-        j <- as.integer(floor(seq(1, n+1 , length.out = x + 1)))
+        j <- as.integer(floor(seq(1, n + 1 , length.out = x + 1)))
         i <- list()
         for (k in seq_len(n)) {
           i[[k]] <- which(j == k)
@@ -743,7 +743,7 @@ prueba <- function(chirps_file, start_plant, end_plant, points_coord){
     
     extract_velox <- function(file, points, out_file){
       
-      file <- x[1:200]
+      file <- x
       points <- geo_files
       
       
@@ -785,7 +785,7 @@ prueba <- function(chirps_file, start_plant, end_plant, points_coord){
       # velox(file[1], extent=c(0,1,0,1))
       # plan(multisession, workers = 10)
       plan(sequential)
-      plan(list(tweak(multisession, workers = 2), tweak(multisession, workers = 2)))
+      plan(list(tweak(multisession, workers = 3), tweak(multisession, workers = 4)))
       tic('parallel map raster')
       vx_raster <- purrr::map(.x = file, .f = ~future(raster(.x))) %>%
         future::values() %>%
@@ -795,7 +795,7 @@ prueba <- function(chirps_file, start_plant, end_plant, points_coord){
       
       ## haciendo load balancing
       
-      l = distribute_load(x = length(file), n = 10)
+      l = distribute_load(x = length(file), n = 18)
       
       files <- purrr::map(.x = l, .f = function(l, x) x[l], file)
   
