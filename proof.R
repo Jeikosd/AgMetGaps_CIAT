@@ -574,7 +574,11 @@ prueba <- function(chirps_file, start_plant, end_plant, points_coord){
     
     
     
-    ###
+    ###################
+    ###################
+    ###################
+    ##################
+    ####################
     ## code to make time series climate from chirps for each point in the calendar polygons
     
     library(lubridate)
@@ -929,4 +933,215 @@ prueba <- function(chirps_file, start_plant, end_plant, points_coord){
       
       return(values)
     }
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    library(raster)
+    library(ncdf4)
+    library(velox)
+    library(foreach)
+    library(future) # parallel package
+    library(doFuture)
+    library(magrittr)
+    library(lubridate)
+    library(tidyr)
+    library(readr)
+    library(stringr)
+    library(tidyverse)
+    library(chron)
+    library(geoR)
+    
+    
+    path <- "/mnt/workspace_cluster_9/AgMetGaps/Inputs/05-Crop Calendar Sacks/"
+    crop <- 'maize' # rice , maize , wheat
+    crop_type <- 'Maize.crop.calendar.nc' # rice , maize , wheat
+    
+    
+    
+    
+    ## Proof for rice information 
+    
+    
+    
+    
+    ##################################################################
+    ####### Planting dates ######## 
+    ##################################################################
+    
+    
+    ## Proof for maize information 
+    
+    # D:/Agpurrr::maps/planting_dates/calendar/
+    
+    
+    pdate <- raster(paste0(path, crop_type), varname = 'plant') %>% 
+      crop(extent(-180, 180, -50, 50)) 
+    
+    crop <- 'maize'
+    path <- '/mnt/workspace_cluster_9/AgMetGaps/'
+    
+    tbl <- read.csv(paste0(path, 'monthly_out/',crop,'/summary.csv')) # read database in case we don't have it in memory
+    
+    
+    
+    rasterize_masa <- function(var, data, raster){
+      points <- data %>%
+        select(long, lat) %>%
+        data.frame 
+      
+      
+      vals <- data %>%
+        select(!!var) %>%
+        magrittr::extract2(1)
+      
+      y <- rasterize(points, raster, vals, fun = mean)
+      return(y)}
+    
+    
+    ##### create a raster stack object with the all variables to the data set 
+    all_inf <- tbl %>% 
+      names %>%
+      .[-(1:3)] %>%
+      as.list() %>%
+      lapply(., rasterize_masa, data = tbl, raster = pdate) %>% 
+      stack %>% 
+      stats::setNames(tbl %>% names %>% .[-(1:3)] )
+    
+    
+    
+    all_inf %>% names
+    
+    library("RColorBrewer")
+    map.na = list("SpatialPolygonsRescale", layout.north.arrow(),
+                  offset = c(329000, 261500), scale = 4000, col = 1)
+    map.scale.1 = list("SpatialPolygonsRescale", layout.scale.bar(),
+                       offset = c(326500, 217000), scale = 5000, col = 1,
+                       fill = c("transparent", "blue"))
+    map.scale.2 = list("sp.text", c(326500, 217900), "0", cex = 0.9, col = 1)
+    map.scale.3 = list("sp.text", c(331500, 217900), "5km", cex = 0.9, col = 1)
+    map.layout <- list(map.na, map.scale.1, map.scale.2, map.scale.3)
+    mypalette.1 <- brewer.pal(8, "Reds")
+    mypalette.2 <- brewer.pal(5, "Blues")
+    mypalette.3 <- brewer.pal(6, "Greens")
+    
+    
+    
+    # Load the GWPCA functions....
+    library(sf)
+    
+    library(GWmodel)
+    shp_colombia <- st_read(dsn = paste0(path, 'Inputs/shp/sur_centro_america.shp')) %>%
+      # filter(NAME %in% c('Colombia', 'Bolivia')) %>%
+      filter(REGION == 'Latin America') %>%
+      as('Spatial')
+    
+    all_inf <- crop(all_inf, shp_colombia)
+    ## Creando el patron espacial primero... haber como sale la cosa para maíz 
+    
+    # Rp <- rasterToPolygons(all_inf)
+    
+    #Rp@
+    Rp1 <- Rp1 <- all_inf[[c('a.cv.prec', 'b.cv.prec', 'c.cv.prec', 'a.cv.temp', 'b.cv.temp', 'c.cv.temp', 'gap')]] %>% 
+      rasterToPolygons()
+    
+    # Rp %>% colnames - P1 = Polygon(coords = Rp[,1:2])
+    
+    
+    
+    # Data.scaled <- scale(as.matrix(Rp1[,-(1:2)])) # sd
+    Data.scaled <- scale(as.data.frame(Rp1)) # sd
+    
+    pca.basic <- princomp(Data.scaled, cor = F) # generalized pca
+    (pca.basic$sdev^2 / sum(pca.basic$sdev^2))*100 # % var
+    
+    pca.basic$loadings
+    
+    # R.COV <- covMcd(Data.scaled, cor = F, alpha = 0.75)
+    
+    
+    # Coords <- Rp1[,1:2]
+    # Data.scaled.spdf <- SpatialPointsDataFrame(coordinates(Rp1),as.data.frame(Data.scaled))
+    Data.scaled.spdf <- Rp1
+    InDeVars <- c('a.cv.prec', 'b.cv.prec', 'c.cv.prec', 'a.cv.temp', 'b.cv.temp', 'c.cv.temp')
+    DeVar <- 'gap'
+    model.sel <- model.selection.gwr(DeVar ,InDeVars, data = Data.scaled.spdf,
+                                     kernel = "bisquare")
+    
+    sorted.models <- model.sort.gwr(model.sel, numVars = length(InDeVars),
+                                    ruler.vector = model.sel[[2]][,2])
+    model.list <- sorted.models[[1]]
+    
+    X11(width = 10, height = 8)
+    model.view.gwr(DeVar, InDeVars, model.list = model.list)
+    plot(sorted.models[[2]][,2], col = "black", pch = 20, lty = 5,
+         main = "Alternative view of GWR model selection procedure", ylab = "AICc",
+         xlab = "Model number", type = "b")
+    
+    bw.gwr.1 <- bw.gwr(gap ~ a.cv.prec + b.cv.prec + c.cv.prec + a.cv.temp + b.cv.temp+ c.cv.temp,
+                       data = Data.scaled.spdf, approach = "AICc",
+                       kernel = "bisquare", adaptive = TRUE)
+    
+    gwr.res <- gwr.basic(gap ~ a.cv.prec + b.cv.prec + c.cv.prec + a.cv.temp + b.cv.temp+ c.cv.temp,
+                         data = Data.scaled.spdf,
+                         bw = bw.gwr.1, kernel = "bisquare", F123.test = FALSE, adaptive = TRUE)
+    gwr.res$SDF
+    
+    Coords <- coordinates(gwr.res$SDF) %>%
+      as_tibble %>% 
+      rename(long = V1, lat = V2)
+    
+    
+    df_data <- bind_cols(as_tibble(gwr.res$SDF), Coords)
+    
+    p <- rasterize_masa("Local_R2", df_data, pdate)
+    p <- crop(p, shp_colombia)
+    plot(p)
+    plot(shp_colombia, add = T)
+    
+    
+    summarise()
+    
+    
+    library(raster)
+    library(dplyr)
+    library(sf)
+    library(velox)
+    
+    path <- '//dapadfs/Workspace_cluster_9/AgMetGaps/monthly_out/rice/GROC/summary/'
+    p <- raster(paste0(path, 'Cor_mean_gap_ngb_3.tif')) %>%   ## correlacion entre prmedio del groc vs yield gap
+      rasterToPoints() %>%
+      tbl_df() %>%
+      mutate(corte = Cor_mean_gap_ngb_3 > 0.3) %>%
+      filter(corte == TRUE)  # %>%
+    # st_as_sf( coords = c("x", "y"), crs = '+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0') %>%
+    # st_transform(crs = '+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0')
+    
+    mascara <- shapefile('//dapadfs/Workspace_cluster_9/AgMetGaps/Inputs/shp/mapa_mundi.shp')
+    vx <- raster(paste0(path, 'GROC_mean.tif')) #%>%
+    # velox()
+    
+    # vx$extract(sp= as(p, 'Spatial'), fun=mean)
+    # groc$extract(sp = as(p, 'Spatial'), fun = mean)
+    
+    values <- extract(vx, as.data.frame(p[, 1:2])) %>%
+      tbl_df() %>%
+      rename(GROC = value)
+    
+    df <- bind_cols(p, values)  %>%
+      rename(long = x, 
+             lat = y)
+    
+    
+    z <- rasterize_masa('GROC', df, vx)
+    plot(z)
+    plot(mascara, add = T)  
+    pr1 <- projectRaster(z, crs='+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0')
+    
     
