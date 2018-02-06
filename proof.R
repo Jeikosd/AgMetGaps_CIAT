@@ -965,22 +965,6 @@ prueba <- function(chirps_file, start_plant, end_plant, points_coord){
     
     
     
-    
-    ## Proof for rice information 
-    
-    
-    
-    
-    ##################################################################
-    ####### Planting dates ######## 
-    ##################################################################
-    
-    
-    ## Proof for maize information 
-    
-    # D:/Agpurrr::maps/planting_dates/calendar/
-    
-    
     pdate <- raster(paste0(path, crop_type), varname = 'plant') %>% 
       crop(extent(-180, 180, -50, 50)) 
     
@@ -1002,6 +986,7 @@ prueba <- function(chirps_file, start_plant, end_plant, points_coord){
         magrittr::extract2(1)
       
       y <- rasterize(points, raster, vals, fun = mean)
+      names(y) <- var
       return(y)}
     
     
@@ -1016,21 +1001,21 @@ prueba <- function(chirps_file, start_plant, end_plant, points_coord){
     
     
     
-    all_inf %>% names
-    
-    library("RColorBrewer")
-    map.na = list("SpatialPolygonsRescale", layout.north.arrow(),
-                  offset = c(329000, 261500), scale = 4000, col = 1)
-    map.scale.1 = list("SpatialPolygonsRescale", layout.scale.bar(),
-                       offset = c(326500, 217000), scale = 5000, col = 1,
-                       fill = c("transparent", "blue"))
-    map.scale.2 = list("sp.text", c(326500, 217900), "0", cex = 0.9, col = 1)
-    map.scale.3 = list("sp.text", c(331500, 217900), "5km", cex = 0.9, col = 1)
-    map.layout <- list(map.na, map.scale.1, map.scale.2, map.scale.3)
-    mypalette.1 <- brewer.pal(8, "Reds")
-    mypalette.2 <- brewer.pal(5, "Blues")
-    mypalette.3 <- brewer.pal(6, "Greens")
-    
+    # all_inf %>% names
+    # 
+    # library("RColorBrewer")
+    # map.na = list("SpatialPolygonsRescale", layout.north.arrow(),
+    #               offset = c(329000, 261500), scale = 4000, col = 1)
+    # map.scale.1 = list("SpatialPolygonsRescale", layout.scale.bar(),
+    #                    offset = c(326500, 217000), scale = 5000, col = 1,
+    #                    fill = c("transparent", "blue"))
+    # map.scale.2 = list("sp.text", c(326500, 217900), "0", cex = 0.9, col = 1)
+    # map.scale.3 = list("sp.text", c(331500, 217900), "5km", cex = 0.9, col = 1)
+    # map.layout <- list(map.na, map.scale.1, map.scale.2, map.scale.3)
+    # mypalette.1 <- brewer.pal(8, "Reds")
+    # mypalette.2 <- brewer.pal(5, "Blues")
+    # mypalette.3 <- brewer.pal(6, "Greens")
+    # 
     
     
     # Load the GWPCA functions....
@@ -1049,6 +1034,7 @@ prueba <- function(chirps_file, start_plant, end_plant, points_coord){
     
     #Rp@
     Rp1 <- Rp1 <- all_inf[[c('a.cv.prec', 'b.cv.prec', 'c.cv.prec', 'a.cv.temp', 'b.cv.temp', 'c.cv.temp', 'gap')]] %>% 
+      crop(shp_colombia) %>%
       rasterToPolygons()
     
     # Rp %>% colnames - P1 = Polygon(coords = Rp[,1:2])
@@ -1056,12 +1042,12 @@ prueba <- function(chirps_file, start_plant, end_plant, points_coord){
     
     
     # Data.scaled <- scale(as.matrix(Rp1[,-(1:2)])) # sd
-    Data.scaled <- scale(as.data.frame(Rp1)) # sd
+    # Data.scaled <- scale(as.data.frame(Rp1)) # sd
     
-    pca.basic <- princomp(Data.scaled, cor = F) # generalized pca
-    (pca.basic$sdev^2 / sum(pca.basic$sdev^2))*100 # % var
+    # pca.basic <- princomp(Data.scaled, cor = F) # generalized pca
+    # (pca.basic$sdev^2 / sum(pca.basic$sdev^2))*100 # % var
     
-    pca.basic$loadings
+    # pca.basic$loadings
     
     # R.COV <- covMcd(Data.scaled, cor = F, alpha = 0.75)
     
@@ -1099,14 +1085,48 @@ prueba <- function(chirps_file, start_plant, end_plant, points_coord){
     
     
     df_data <- bind_cols(as_tibble(gwr.res$SDF), Coords)
+    InDeVars <- c('a.cv.prec', 'b.cv.prec', 'c.cv.prec', 'a.cv.temp', 'b.cv.temp', 'c.cv.temp', 'Local_R2')
+    
     
     p <- rasterize_masa("Local_R2", df_data, pdate)
     p <- crop(p, shp_colombia)
+    
+    p <- purrr::map(.x = InDeVars, .f = rasterize_masa, data = df_data, raster = pdate)
+    p <- purrr::map(.x = p, .f = raster::crop, shp_colombia)
+    p <- stack(p)
+    p <- as.data.frame(p, xy = TRUE)
+    
     plot(p)
     plot(shp_colombia, add = T)
     
+    ggplot() +  
+      geom_tile(data = df_data, aes(y=lat, x=long, fill=Local_R2))+
+    theme_bw() +
+      coord_equal() 
+      geom_raster(p[[1]])
+      
+      ggplot() + 
+        theme_bw() +
+        # coord_equal() +
+        # scale_fill_gradientn(colours = rev(rainbow(7)), na.value = NA) +
+        geom_polygon(data = shp_colombia, aes(x=long, y = lat, group = group), color = "black", fill = "white") +
+        geom_raster(data = p, aes(x, y, fill = Local_R2)) +
+        scale_fill_viridis(option = "magma", na.value = NA) +
+        theme(axis.title.x = element_text(size=16),
+              axis.title.y = element_text(size=16, angle=90),
+              axis.text.x = element_text(size=14),
+              axis.text.y = element_text(size=14),
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              legend.position = 'right',
+              legend.key = element_blank()
+        )
+        geom_sf(data = st_as_sf(shp_colombia), colour = "white") 
+      
+      geom_tile(data=p[[1]], aes(x=x, y=y, fill=value), alpha=0.8)
     
-    summarise()
+    
+
     
     
     library(raster)
