@@ -1070,17 +1070,31 @@ prueba <- function(chirps_file, start_plant, end_plant, points_coord){
          main = "Alternative view of GWR model selection procedure", ylab = "AICc",
          xlab = "Model number", type = "b")
     
+
+    
     bw.gwr.1 <- bw.gwr(gap ~ a.cv.prec + b.cv.prec + c.cv.prec + a.cv.temp + b.cv.temp+ c.cv.temp,
                        data = Data.scaled.spdf, approach = "AICc",
-                       kernel = "bisquare", adaptive = TRUE)
+                       kernel = "gaussian", adaptive = TRUE)
     
+    bw.lcrm1 <- bw.gwr(gap ~ a.cv.prec + b.cv.prec + c.cv.prec + a.cv.temp + b.cv.temp+ c.cv.temp,
+                       data = Data.scaled.spdf, approach = "AICc",
+                       kernel = "gaussian", adaptive = TRUE)
+
     gwr.res <- gwr.basic(gap ~ a.cv.prec + b.cv.prec + c.cv.prec + a.cv.temp + b.cv.temp+ c.cv.temp,
                          data = Data.scaled.spdf,
-                         bw = bw.gwr.1, kernel = "bisquare", F123.test = FALSE, adaptive = TRUE)
-    gwr.res$SDF
+                         bw = bw.gwr.1, kernel = "gaussian", F123.test = FALSE, adaptive = TRUE)
+    
+    lcrm1 <- gwr.lcr(gap ~ a.cv.prec + b.cv.prec + c.cv.prec + a.cv.temp + b.cv.temp+ c.cv.temp,
+                     data = Data.scaled.spdf, bw = bw.lcrm1,
+                     kernel = "gaussian", adaptive = TRUE, lambda.adjust = TRUE,
+                     cn.thresh = 30)
+    spplot(lcrm1$SDF, "Local_CN", key.space = "right",
+           # col.regions = mypalette.7,
+           main = "Local condition numbers before adjustment",
+           sp.layout = shp_colombia)
     
     Coords <- coordinates(gwr.res$SDF) %>%
-      as_tibble %>% 
+      as_tibble %>%    
       rename(long = V1, lat = V2)
     
     
@@ -1100,8 +1114,8 @@ prueba <- function(chirps_file, start_plant, end_plant, points_coord){
     plot(shp_colombia, add = T)
     
     ggplot() +  
-      geom_tile(data = df_data, aes(y=lat, x=long, fill=Local_R2))+
-    theme_bw() +
+      geom_tile(data = df_data, aes(y=lat, x=long, fill = Local_R2))+
+      theme_bw() +
       coord_equal() 
       geom_raster(p[[1]])
       
@@ -1111,7 +1125,7 @@ prueba <- function(chirps_file, start_plant, end_plant, points_coord){
         # scale_fill_gradientn(colours = rev(rainbow(7)), na.value = NA) +
         geom_polygon(data = shp_colombia, aes(x=long, y = lat, group = group), color = "black", fill = "white") +
         geom_raster(data = p, aes(x, y, fill = Local_R2)) +
-        scale_fill_viridis(option = "magma", na.value = NA) +
+        scale_fill_viridis(option = "viridis", na.value = NA, direction = -1) +
         theme(axis.title.x = element_text(size=16),
               axis.title.y = element_text(size=16, angle=90),
               axis.text.x = element_text(size=14),
@@ -1125,9 +1139,54 @@ prueba <- function(chirps_file, start_plant, end_plant, points_coord){
       
       geom_tile(data=p[[1]], aes(x=x, y=y, fill=value), alpha=0.8)
     
+      
+      
+      gw.ss.bs <- gwss(Data.scaled.spdf,vars = c('a.cv.prec', 'b.cv.prec', 'c.cv.prec', 'a.cv.temp', 'b.cv.temp', 'c.cv.temp', 'gap'),
+                       kernel = "gaussian", adaptive = TRUE, bw = 19)
+      
+      # mypalette.2 <- brewer.pal(5, "Blues")
+      spplot(gw.ss.bs$SDF, "Corr_b.cv.prec.gap", key.space = "right",
+             # col.regions = mypalette.2,
+             main = "GW correlations")
     
+      
+   
+      Coords <- coordinates(gw.ss.bs$SDF) %>%
+        as_tibble %>% 
+        rename(long = V1, lat = V2)
+      
+      
+      df_data <- bind_cols(as_tibble(gw.ss.bs$SDF), Coords)
+    
+      
+      p <- purrr::map(.x = c('Corr_a.cv.prec.gap', 'Corr_b.cv.prec.gap', 'Corr_c.cv.prec.gap'), .f = rasterize_masa, data = df_data, raster = pdate)
+      p <- purrr::map(.x = p, .f = raster::crop, shp_colombia)
+      p <- stack(p)
+      p <- as.data.frame(p, xy = TRUE)
+      p <- gather(p, correlation, value, -x, -y)
+      
+      # plot(p)
+      # plot(shp_colombia, add = T)
 
-    
+      ggplot() + 
+        theme_bw() +
+        # coord_equal() +
+        # scale_fill_gradientn(colours = rev(rainbow(7)), na.value = NA) +
+        geom_polygon(data = shp_colombia, aes(x=long, y = lat, group = group), color = "black", fill = "white") +
+        geom_raster(data = p, aes(x, y, fill = value)) +
+        scale_fill_gradient2(na.value = NA, limits=c(-1,1))+
+        # scale_fill_viridis(option = "viridis", na.value = NA, direction = -1) +
+        facet_wrap(~correlation)
+      
+      
+        
+      ggplot() + 
+        # theme_bw() +
+        coord_equal() +
+        # scale_fill_gradientn(colours = rev(rainbow(7)), na.value = NA) +
+        # geom_polygon(data = shp_colombia, aes(x=long, y = lat, group = group), color = "black", fill = "white") +
+        geom_raster(data = df_data, aes(x, y, fill = Corr_b.cv.prec.gap))
+      
     
     library(raster)
     library(dplyr)
