@@ -3,44 +3,73 @@
 ##################################################################
 
 
-# Libraries
+## =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-= ##
+## Packages
+## =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-= ##
 
-library(raster)
-library(ncdf4)
-library(velox)
-library(foreach)
-library(future) # parallel package
-library(doFuture)
-library(magrittr)
-library(lubridate)
-library(tidyr)
-library(readr)
-library(stringr)
-library(tidyverse)
-library(chron)
-library(geoR)
-
-
+suppressMessages(if(!require(raster)){install.packages('raster'); library(raster)} else {library(raster)})
+suppressMessages(if(!require(ncdf4)){install.packages('ncdf4'); library(ncdf4)} else {library(ncdf4)})
+suppressMessages(if(!require(velox)){install.packages('velox'); library(velox)} else {library(velox)})
+suppressMessages(if(!require(foreach)){install.packages('foreach'); library(foreach)} else {library(foreach)})
+suppressMessages(if(!require(future)){install.packages('future'); library(future)} else {library(future)}) # parallel package
+suppressMessages(if(!require(doFuture)){install.packages('doFuture'); library(doFuture)} else {library(doFuture)})
+suppressMessages(if(!require(magrittr)){install.packages('magrittr'); library(magrittr)} else {library(magrittr)})
+suppressMessages(if(!require(lubridate)){install.packages('lubridate'); library(lubridate)} else {library(lubridate)})
+suppressMessages(if(!require(tidyr)){install.packages('tidyr'); library(tidyr)} else {library(tidyr)})
+suppressMessages(if(!require(readr)){install.packages('readr'); library(readr)} else {library(readr)})
+suppressMessages(if(!require(stringr)){install.packages('stringr'); library(stringr)} else {library(stringr)})
+suppressMessages(if(!require(tidyverse)){install.packages('tidyverse'); library(tidyverse)} else {library(tidyverse)})
+suppressMessages(if(!require(chron)){install.packages('chron'); library(chron)} else {library(chron)})
+suppressMessages(if(!require(geoR)){install.packages('geoR'); library(geoR)} else {library(geoR)})
+# library(FactoMineR) # 1.
+# library(RColorBrewer) # 2. graphics
+# library(sf) # 3. 
+# library(GWmodel) # 4.
 #####
 
 
-# setwd('/mnt/workspace_cluster_9/AgMetGaps')
+
+
+
+
+
+###### Graphical parameters -----  to ggplot2
+
+### Lectura del shp
+shp <- shapefile(paste("/mnt/workspace_cluster_9/AgMetGaps/Inputs/shp/mapa_mundi.shp",sep="")) %>% 
+  crop(extent(-180, 180, -50, 50))
+
+u <- borders(shp, colour="black")
+
+ewbrks <- c(seq(-180,0,45), seq(0, 180, 45))
+nsbrks <- seq(-50,50,25)
+ewlbls <- unlist(lapply(ewbrks, function(x) ifelse(x < 0, paste(abs(x), "°W"), ifelse(x > 0, paste( abs(x), "°E"),x))))
+nslbls <- unlist(lapply(nsbrks, function(x) ifelse(x < 0, paste(abs(x), "°S"), ifelse(x > 0, paste(abs(x), "°N"),x))))
+
+Blues<-colorRampPalette(c('#fff7fb','#ece7f2','#d0d1e6','#a6bddb','#74a9cf','#3690c0','#0570b0','#045a8d','#023858','#233159'))
+
+
+
+
+
+
+
+
+## =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-= ##
+#######                   Preliminar parameters                 ######## 
+## =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-= ##
 
 path <- "/mnt/workspace_cluster_9/AgMetGaps/Inputs/05-Crop Calendar Sacks/"
-crop <- 'rice' # rice , maize , wheat
-crop_type <- 'Rice.crop.calendar.nc' # rice , maize , wheat
+crop <- 'wheat' # rice , maize , wheat
+crop_type <- 'Wheat.crop.calendar.nc' # rice , maize , wheat
+out_path <- '/mnt/workspace_cluster_9/AgMetGaps/monthly_out/'
 
-## Proof for rice information 
 
 
-##################################################################
+
+## =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-= ##
 #######                   Planting dates                  ######## 
-##################################################################
-
-
-## Proof for maize information 
-
-# D:/Agpurrr::maps/planting_dates/calendar/
+## =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-= ##
 
 
 pdate <- raster(paste0(path, crop_type), varname = 'plant') %>% 
@@ -63,6 +92,10 @@ hdate_points <- rasterToPoints(hdate) %>%
 
 
 
+## =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-= ##
+## Functions for creation to the calendar with three seasons (harvest- floration - planting)
+## =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-= ##
+
 # Compute floration trimester
 compute_flor <- function(.x, .y){
   
@@ -77,20 +110,21 @@ compute_flor <- function(.x, .y){
   return(flor)
   }
 
-
-
-
+# Compute the trimester
 month_below <- function(.x){
   if(.x > 1) { below <- .x - 1} else if(.x  == 1){ below <- 12 }
   return(below)}
-
-
 
 month_above <- function(.x){
   if(.x < 12) { above <- .x + 1} else if(.x  == 12){ above <- 1 }
   return(above)}
 
 
+
+
+## =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-= ##
+#######                   Crop calendar in a table                  ######## 
+## =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-= ##
 
 
 crop.time <- inner_join(pdate_points, hdate_points) %>% 
@@ -109,8 +143,85 @@ crop.time <- inner_join(pdate_points, hdate_points) %>%
   select(x,y, a.Planting1, a.Planting2, a.Planting3, b.flor1, b.flor2, b.flor3, 
          c.harvest1, c.harvest2, c.harvest3) %>% 
   gather(key = phase.month, value = month, -x, -y)  %>% 
-  # group_by(x, y)  %>% 
   separate(phase.month, c("phase", "type"), sep = "\\.") 
+
+
+
+
+
+
+## =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-= ##
+## Save calendars information 
+## =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-= ##
+
+# =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+
+#### This function is similar to rasterize_masa, but is better if we review the functions. 
+calendarR <- function(var, x, raster){
+  
+  points <- x %>%
+    select(long, lat) %>%
+    data.frame 
+  
+  vals <- x %>%
+    dplyr::select(!!var) %>%
+    magrittr::extract2(1)
+  
+  y <- rasterize(points, raster, vals, fun = mean)
+  
+  rasterVis::gplot(y) + 
+    geom_tile(aes(fill = as.factor(value))) + 
+    u + 
+    coord_equal() +
+    labs(x="Longitude",y="Latitude", fill = " ")   +
+    scale_fill_brewer(palette = "Set1", na.value="white") +
+    scale_x_continuous(breaks = ewbrks, labels = ewlbls, expand = c(0, 0)) +
+    scale_y_continuous(breaks = nsbrks, labels = nslbls, expand = c(0, 0)) +
+    theme_bw() + theme(panel.background=element_rect(fill="white",colour="black")) 
+  
+  file_name <- paste0(out_path , crop, '/Mcalendar_', var)
+  ggsave(paste0( file_name, '.png'), width = 10, height = 4)
+  writeRaster(y,  paste0( file_name, '.tif'))
+  
+  return(y)}
+# =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+
+table_seasons <- inner_join(pdate_points, hdate_points)   %>% 
+  select(-julian.start, -julian.h) %>% 
+  mutate(flor = purrr::map2(.x = Planting, .y = harvest, .f = compute_flor)) %>% 
+  unnest() %>% 
+  select(x, y, Planting, flor, harvest)
+
+
+table_seasons %>%
+  rename(lat = y, long = x) %>% 
+  names %>% 
+  .[-(1:2)] %>% 
+  as.tibble() %>% 
+  mutate(calendars = purrr::map(.x = value, .f = calendarR, x = table_seasons %>%
+                                  rename(lat = y, long = x) , raster = pdate))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1197,105 +1308,6 @@ res.pca$ind$coord %>%
   .[,1:2] %>% 
   cbind.data.frame(gap = tbl$gap) %>%
   plot
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#############################################################################
-################### Create calendar to extract the GROC. 
-
-
-table_seasons <- inner_join(pdate_points, hdate_points)   %>% 
-  select(-julian.start, -julian.h) %>% 
-  mutate(flor = purrr::map2(.x = Planting, .y = harvest, .f = compute_flor)) %>% 
-  unnest() %>% 
-  select(x, y, Planting, flor, harvest)
-
-
-
-## rasterize the calendar 
-
-
-calendarR <- function(var, x, raster){
-  
-  points <- x %>%
-    select(long, lat) %>%
-    data.frame 
-  
-  vals <- x %>%
-    dplyr::select(!!var) %>%
-    magrittr::extract2(1)
-  
-  y <- rasterize(points, raster, vals, fun = sum)
-  
-  ### Lectura del shp
-  shp <- shapefile(paste("/mnt/workspace_cluster_9/AgMetGaps/Inputs/shp/mapa_mundi.shp",sep="")) %>% 
-    crop(extent(-180, 180, -50, 50))
-  
-  u <- borders(shp, colour="black")
-  
-  
-  myPalette <-  colorRampPalette(c("navyblue","#2166AC", "dodgerblue3","lightblue", "lightcyan",  "white",  "yellow","orange", "orangered","#B2182B", "red4"))
-  
-  ewbrks <- c(seq(-180,0,45), seq(0, 180, 45))
-  nsbrks <- seq(-50,50,25)
-  ewlbls <- unlist(lapply(ewbrks, function(x) ifelse(x < 0, paste(abs(x), "°W"), ifelse(x > 0, paste( abs(x), "°E"),x))))
-  nslbls <- unlist(lapply(nsbrks, function(x) ifelse(x < 0, paste(abs(x), "°S"), ifelse(x > 0, paste(abs(x), "°N"),x))))
-  
-  # Blues<-colorRampPalette(c('#fff7fb','#ece7f2' ,'#edf8b1','#9ecae1', '#7fcdbb','#2c7fb8','#a6bddb','#1c9099','#addd8e', '#31a354'))
-  Blues<-colorRampPalette(c('#fff7fb','#ece7f2','#d0d1e6','#a6bddb','#74a9cf','#3690c0','#0570b0','#045a8d','#023858','#233159'))
-  
-  
-  rasterVis::gplot(y) + 
-    geom_tile(aes(fill = value)) + 
-    u + 
-    coord_equal() +
-    labs(x="Longitude",y="Latitude", fill = " ")   +
-    scale_fill_gradientn(colours =Blues(100), na.value="white") +
-    scale_x_continuous(breaks = ewbrks, labels = ewlbls, expand = c(0, 0)) +
-    scale_y_continuous(breaks = nsbrks, labels = nslbls, expand = c(0, 0)) +
-    theme_bw() + theme(panel.background=element_rect(fill="white",colour="black")) 
-  
-  file_name <- paste0(out_path , crop, '/Mcalendar_', var)
-  ggsave(paste0( file_name, '.png'), width = 10, height = 4)
-  writeRaster(y,  paste0( file_name, '.tif'))
-  
-  return(y)}
-
-
-
-table_seasons %>%
-  rename(lat = y, long = x)
-
-
-
-table_seasons %>%
-  rename(lat = y, long = x) %>% 
-  names %>% 
-  .[-(1:2)] %>% 
-  # as.list() %>% 
-  as.tibble() %>% 
-  mutate(calendars = purrr::map(.x = value, .f = calendarR, x = table_seasons %>%
-                                  rename(lat = y, long = x) , raster = pdate))
-
-
-
-
-
-
-
-
-
 
 
 
