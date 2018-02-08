@@ -819,8 +819,38 @@ prueba <- function(chirps_file, start_plant, end_plant, points_coord){
         # velox::velox()
       toc() 
       
-      vx_raster %>%
+      vx_raster <- vx_raster %>%
         purrr::reduce(left_join, by = c('id', 'lat', 'long'))
+      write_csv(values, path = paste0(out_file, daily_day, '.csv'))
+      out_file <- '/mnt/workspace_cluster_9/AgMetGaps/weather_analysis/precipitation_points/weather_stations/'
+      type_crop <- basename(points_path)
+      
+      # make_fst <- function(x){
+      #   
+      #   # x <- csv_files[1]
+      #   date <- basename(x)
+      #   path <- stringr::str_replace_all(x, pattern = date, replacement  = '')
+      #   
+      #   date <- stringr::str_replace_all(date, pattern = ".csv", replacement  = '')
+      #   
+      #   x <- data.table::fread(x) %>%
+      #     as.data.frame()
+      #   
+      #   # x <- as.data.frame(x)
+      #   
+      #   fst::write.fst(x, paste0(path, date, ".fst"))
+      # }
+      fst::write.fst(vx_raster, paste0(out_file, type_crop, '.fst'))
+      write_csv(vx_raster, path = paste0(out_file, type_crop, '.csv'))
+      
+      vx_raster <- vx_raster %>%
+        group_by(id, lat, long) %>%
+        nest()
+      tidyr::gather(date, precip) 
+      
+      ## Make this in parallel?
+      vx_raster %>%
+        mutate(climate = purrr::map(.x = data, .f = ~gather(.x, date, precip)))
       
       m <- plyr::llply(distribute_load(length(y)), .parallel = TRUE,
                        function(i) {
