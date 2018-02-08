@@ -209,6 +209,10 @@ table_seasons %>%
 
 
 
+# =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+# To use the spatial polygons information in the velox strack to points 
+# =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+sp_pdate <- rasterToPolygons(pdate,  dissolve = F) 
 
 
 
@@ -218,28 +222,25 @@ table_seasons %>%
 
 
 
-
-
-
-
-
-
-
-##################################################################
+## =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-= ##
 ##########      Functions to perform read raster,       ##########
 ##########    convert to velox objects, extract points, ##########
 ##########      convert to raster if it is necessary.   ########## 
-##################################################################
+## =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-= ##
 
+## =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-= ##
+## Functions for management to Chirps information
+## =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-= ##
 
+## =-=-=-=-=-=-=-=-=-=-=##
 ###### function to read modificate raster to change band .y
-
 raster_mod <- function(.x, .y){
   raster(.x, band = .y)
 }
+## =-=-=-=-=-=-=-=-=-=-=##
 
 
-
+## =-=-=-=-=-=-=-=-=-=-=##
 #### Create a function to strack the points 
 extract_velox <- function(velox_Object, points){
   
@@ -247,7 +248,7 @@ extract_velox <- function(velox_Object, points){
     tbl_df() %>%
     rename(lat = V1, long = V2)
   
-  velox_Object$extract(points, fun = function(x){ 
+    velox_Object$extract(points, fun = function(x){ 
     x[x<0] <- NA
     x <- as.numeric(x)
     mean(x, na.rm = T)}) %>%
@@ -255,44 +256,35 @@ extract_velox <- function(velox_Object, points){
     rename(values = V1) %>%
     bind_cols(coords) %>%
     dplyr::select(lat, long, values)
-  
 }
+## =-=-=-=-=-=-=-=-=-=-=##
 
 
 
-##############################
-##############################
-# To use the spatial polygons information in the velox strack to points 
 
-sp_pdate <- rasterToPolygons(pdate,  dissolve = F) 
-
-
-##################################################################
-##################################################################
+## =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-= ##
 ##########        Climate:  variability  analysis       ########## 
-##################################################################
-##################################################################
+## =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-= ##
 
 
 
-##################################################################
+## =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=--=-=-=-= ##
 ##########        Precipitation: Chirps                 ########## 
-##################################################################
+## =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=--=-=-=-= ##
 
-# 'D:/Agpurrr::maps/Chips_Monthly/'
-## asignar la banda a que Año y mes pertenecen
-n_bands <- nc_open(paste0('Chips_Monthly/', 'chirps-v2.0.monthly.nc'))$dim$time$len
-n_bands <- n_bands - 8 # temporal
-
+# n_bands <- nc_open(paste0('Chips_Monthly/', 'chirps-v2.0.monthly.nc'))$dim$time$len
+n_bands <- n_bands - 8 # number of bands
 
 
 
 ## read monthly precipitation rasters with furure functions 
 plan(multisession, workers = availableCores() - 3)
 
+
+
+## read monthly precipitation rasters 
 system.time(  
-  ## read monthly precipitation rasters 
-  dates_raster <- "1981-1-1"  %>% # str_extract(nc_open(paste0('Chips_Monthly/', 'chirps-v2.0.monthly.nc'))$dim$time$units, "\\d{4}-\\d{1}-\\d{1}")
+    dates_raster <- "1981-1-1"  %>% # str_extract(nc_open(paste0('Chips_Monthly/', 'chirps-v2.0.monthly.nc'))$dim$time$units, "\\d{4}-\\d{1}-\\d{1}")
     as.Date() %>%
     seq(by = "month", length.out = n_bands) %>%
     data_frame(date = .) %>%
