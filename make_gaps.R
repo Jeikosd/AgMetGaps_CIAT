@@ -1,26 +1,40 @@
+library(raster)
+library(velox)
+library(stringr)
 library(tidyverse)
-library(broom)
-
-data = read.table(text = '
-                  dataset sample_id   observation estimate
-                  A   A1  4.8 4.7
-                  A   A2  4.3 4.5
-                  A   A3  3.1 2.9
-                  A   A4  2.1 2
-                  A   A5  1.1 1
-                  B   B1  4.5 4.3
-                  B   B2  3.9 4.1
-                  B   B3  2.9 3
-                  B   B4  1.8 2
-                  B   B5  1   1.2
-                  ', header = TRUE)
+library(ncdf4)
+# library(sf)
 
 
-data %>%
-  group_by(dataset) %>% 
-  nest() %>% 
-  mutate(mod = map(.x = data, ~lm(observation ~ estimate, data = .x)),
-         aug = map(mod, data, ~augment_columns(.x, .y))) %>% 
-  unnest(aug)
+Iizumi <- '/mnt/workspace_cluster_9/AgMetGaps/Inputs/iizumi/'
+season <- c("major", "spring")
 
-lm(observation ~ estimate, data = .)
+climate_binds <-'/mnt/workspace_cluster_9/AgMetGaps/Inputs/Yield_Gaps_ClimateBins/'
+crops <- c('maize', 'rice', 'wheat')
+
+crops_Iizumi <- list.dirs(Iizumi, recursive = FALSE) %>%
+  data_frame(path = . ) %>%
+  filter(str_detect(path, paste(season, collapse = '|'))) %>%
+  pull(path)
+
+yield_file <- purrr::map(.x = crops_Iizumi, .f = list.files, full.names = T)
+
+bind_file <- list.dirs(climate_binds, recursive = FALSE) %>%
+  data_frame(path = . ) %>%
+  filter(str_detect(path, paste(crops, collapse = '|'))) %>%
+  pull(path)
+
+bind_file <- purrr::map(.x = bind_file, .f = list.files, full.names = T, pattern = '*BinMatrix.nc$')
+
+Iizumi_raster <- purrr::map(.x = yield_file[[1]], .f = raster::raster)
+bind_raster <- raster(bind_file[[1]])
+
+## hacer esto en paralelo
+purrr::map(.x = Iizumi_raster, .f = raster::resample, bind_raster)
+
+
+
+
+bind_raster <- purrr::map(.x = Iizumi_raster, .f = raster)
+
+z <- resample(Iizumi_raster, bind_raster)

@@ -849,7 +849,7 @@ prueba <- function(chirps_file, start_plant, end_plant, points_coord){
       tidyr::gather(date, precip) 
       
       ## Make this in parallel?
-      vx_raster %>%
+      vx_raster <- vx_raster %>%
         mutate(climate = purrr::map(.x = data, .f = ~gather(.x, date, precip)))
       
       m <- plyr::llply(distribute_load(length(y)), .parallel = TRUE,
