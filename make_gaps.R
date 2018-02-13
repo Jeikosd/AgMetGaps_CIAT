@@ -93,7 +93,7 @@ potential <- function(x, y){
   points_bind <- rasterToPoints(y) %>%
     tbl_df() %>%
     sf::st_as_sf(coords = c("x","y"))
-  
+
   z <- x$extract_points(points_bind) %>%
     tbl_df() %>% 
     rename(yield = V1) 
@@ -108,15 +108,16 @@ potential <- function(x, y){
     summarise(potential = quantile(yield, probs = 0.95, na.rm =  TRUE))
   
   pot_iizumi <- left_join(p, pot, by = 'BinMatrix') %>%
-    dplyr::mutate(potential = ifelse(is.na(yield), NA, potential)) %>%
-    dplyr::mutate(potential2 = case_when()) 
-  dplyr::mutate(gap = potential - yield)
+    # dplyr::mutate(potential = ifelse(is.na(yield), NA, potential)) %>%
+    dplyr::mutate(potential = if_else(is.na(yield), NA_real_, potential)) %>%
+    # dplyr::mutate(potential = case_when( is.na(yield) == NA_real_ ~ NA_real_, TRUE ~ potential))
+    dplyr::mutate(gap = potential - yield)
   
   ## rasterize
-  m <- x$as.RasterLayer(band = 1)
+  # m <- x$as.RasterLayer(band = 1)
   
   coords <- pot_iizumi %>%
-    select(X, Y) %>%
+    dplyr::select(X, Y) %>%
     data.frame 
   
   potential <- pot_iizumi %>%
@@ -129,8 +130,9 @@ potential <- function(x, y){
     pull
   
   na.omit(pot_iizumi)
-  potential <- rasterize(coords, m, potential, fun = mean)
-  
-  plot(potential)
+  potential <- rasterize(coords, y, potential, fun = mean)
+  gap <- rasterize(coords, y, gap, fun = mean)
+  writeRaster(gap, filename="/mnt/workspace_cluster_9/AgMetGaps/Inputs/iizumi/maize/gap_1981_maize.tif", format="GTiff", overwrite=TRUE)
+
   
 }
