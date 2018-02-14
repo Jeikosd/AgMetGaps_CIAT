@@ -3,7 +3,7 @@ library(velox)
 library(stringr)
 library(tidyverse)
 library(ncdf4)
-# library(sf)
+library(sf)
 
 
 Iizumi <- '/mnt/workspace_cluster_9/AgMetGaps/Inputs/iizumi/'
@@ -36,8 +36,8 @@ Iizumi_raster <- purrr::map(.x = yield_file, .f = ~future(fraster(.x))) %>%
   future::values()
 
 ## para que la informacion quede a la misma resolucion de los bind climaticos
-resample_Iizumi <- purrr::map(.x = Iizumi_raster, .f = ~future(fresample(.x, bind_raster[[1]]))) %>%
-  future::values()
+# resample_Iizumi <- purrr::map(.x = Iizumi_raster, .f = ~future(fresample(.x, bind_raster[[1]]))) %>%
+#   future::values()
 
 
 resample_Iizumi <- purrr::map2(.x = Iizumi_raster, .y = bind_raster, .f = ~future(fresample(.x, .y))) %>%
@@ -57,6 +57,14 @@ library(stringr)
 
 out_potential <- purrr::map(.x = yield_file, .f = out_names, '_potential.tif')
 out_gap <- purrr::map(.x = yield_file, .f = out_names, '_gap.tif')
+
+options(future.globals.maxSize= 8912896000)
+plan(multisession, 8)
+purrr::pmap(.l = list(resample_Iizumi, bind_raster, out_potential, out_gap), .f = ~future(fmake_gap)) %>%
+  future::values()
+
+
+fmake_gap <- function(x, y, out_potential, out_gap)          
 
 
 #### funciones para make_gaps
@@ -101,10 +109,33 @@ out_names <- function(x, type){
 # y: contenedor climatico
 
 
-make_gap <- function(x, y){
+fmake_gap <- function(x, y, out_potential, out_gap){
   
-  # x <- resample_Iizumi[[1]][1]
-  # y <- 
+
+  
+  ## x <- resample_Iizumi[[1]]
+  ## y <- bind_raster[[1]]
+  # out_potential <- out_potential[[1]]
+  # out_gap <- out_gap[[1]]
+  
+  
+  
+  z <- purrr::pmap(.l = list(x, 
+                        out_potential,
+                        out_gap), 
+              .f = ~future(make_gap(a, y, b, c)), y = y) %>%
+    future::values()
+    
+  
+  # x <- future.apply::future_lapply(X = x, FUN = make_gap, y, x, out_potential, out_gap)
+  
+}
+
+
+make_gap <- function(x, y, out_potential, out_gap){
+  
+  # x <- resample_Iizumi[[1]][[1]]
+  # y <- bind_raster[[1]]
   
   # x <- raster('//dapadfs/workspace_cluster_9/AgMetGaps/Inputs/iizumi/maize/yield_1981.nc4') %>%
     # rotate %>%
@@ -122,6 +153,7 @@ make_gap <- function(x, y){
     tbl_df() %>%
     sf::st_as_sf(coords = c("x","y"))
 
+  x <- velox(x)
   yield <- x$extract_points(points_bind) %>%
     tbl_df() %>% 
     rename(yield = V1) 
@@ -131,11 +163,11 @@ make_gap <- function(x, y){
   yield_by_bind <- bind_cols(st_coordinates(points_bind) %>% tbl_df(), yield, points_bind) %>%
     dplyr::mutate(BinMatrix = as.factor(BinMatrix))
   
-  pot <- yield_by_bind %>%
+  potential <- yield_by_bind %>%
     group_by(BinMatrix) %>%
-    summarise(potential = quantile(yield, probs = 0.95, na.rm =  TRUE))
+    summarise(potential = quantile(yield, probs = 0.90, na.rm =  TRUE))
   
-  pot_iizumi <- left_join(yield_by_bind, pot, by = 'BinMatrix') %>%
+  gap_analysis <- left_join(yield_by_bind, potential, by = 'BinMatrix') %>%
     # dplyr::mutate(potential = ifelse(is.na(yield), NA, potential)) %>%
     dplyr::mutate(potential = if_else(is.na(yield), NA_real_, potential)) %>%
     # dplyr::mutate(potential = case_when( is.na(yield) == NA_real_ ~ NA_real_, TRUE ~ potential))
@@ -144,25 +176,31 @@ make_gap <- function(x, y){
   ## rasterize
   # m <- x$as.RasterLayer(band = 1)
   
-  coords <- pot_iizumi %>%
+  coords <- gap_analysis %>%
     dplyr::select(X, Y) %>%
     data.frame 
   
-  potential <- pot_iizumi %>%
+  potential <- gap_analysis %>%
     # dplyr::select(!!var) %>%
-    dplyr::select(potential) 
+    dplyr::select(potential) %>%
+    pull
   
-  gap <- pot_iizumi %>%
+  gap <- gap_analysis %>%
     # dplyr::select(!!var) %>%
     dplyr::select(gap) %>%
     pull
   
-  na.omit(pot_iizumi)
+
   potential <- rasterize(coords, y, potential, fun = mean)
   gap <- rasterize(coords, y, gap, fun = mean)
   
-  writeRaster(potential, filename="/mnt/workspace_cluster_9/AgMetGaps/Inputs/iizumi/maize/gap_1981_maize.tif", format = "GTiff", overwrite = TRUE)
-  writeRaster(gap, filename="/mnt/workspace_cluster_9/AgMetGaps/Inputs/iizumi/maize/gap_1981_maize.tif", format = "GTiff", overwrite = TRUE)
-
+  
+  writeRaster(potential, filename = out_potential, format = "GTiff", overwrite = TRUE)
+  writeRaster(gap, filename = out_gap, format = "GTiff", overwrite = TRUE)
+  
+  # writeRaster(potential, filename="/mnt/workspace_cluster_9/AgMetGaps/Inputs/iizumi/maize/gap_1981_maize.tif", format = "GTiff", overwrite = TRUE)
+  # writeRaster(gap, filename="/mnt/workspace_cluster_9/AgMetGaps/Inputs/iizumi/maize/gap_1981_maize.tif", format = "GTiff", overwrite = TRUE)
+ rm(c(points_bind, yield, yield_by_bind, gap_analysis, coords, potential, gap))
+ gc(reset = T)
   
 }
