@@ -4,7 +4,12 @@ library(stringr)
 library(tidyverse)
 library(ncdf4)
 library(sf)
-
+library(velox)
+library(tidyverse)
+library(stringr)
+library(future)
+library(future.apply)
+library(raster)
 
 Iizumi <- '/mnt/workspace_cluster_9/AgMetGaps/Inputs/iizumi/'
 season <- c("major", "spring")
@@ -17,7 +22,7 @@ crops_Iizumi <- list.dirs(Iizumi, recursive = FALSE) %>%
   filter(str_detect(path, paste(season, collapse = '|'))) %>%
   pull(path)
 
-yield_file <- purrr::map(.x = crops_Iizumi, .f = list.files, full.names = T)
+yield_file <- purrr::map(.x = crops_Iizumi, .f = list.files, full.names = T, pattern = '*.nc4$')
 
 bind_file <- list.dirs(climate_binds, recursive = FALSE) %>%
   data_frame(path = . ) %>%
@@ -25,8 +30,99 @@ bind_file <- list.dirs(climate_binds, recursive = FALSE) %>%
   pull(path)
 
 bind_file <- purrr::map(.x = bind_file, .f = list.files, full.names = T, pattern = '*BinMatrix.nc$')
-bind_raster <- purrr::map(.x = bind_file, .f = raster::raster)
 
+
+
+fraster <- function(x){
+
+  x <- future.apply::future_lapply(X = x, FUN = rotate_raster)
+  
+}
+
+## rotar ya que Iizumi lo necesita
+rotate_raster <- function(x){
+  
+  x <- raster(x) %>%
+    raster::rotate(x, overwrite = T)
+}
+
+
+
+
+make_gap <- function(yield, bind, out_path){
+  
+  yield <- yield_file[[1]]
+  plan(multisession, workers = 10)
+  
+  ## esta parte no es necesario hacerla en paralelo
+  
+  yields <- fraster(yield)
+  
+  points_bind <- rasterToPoints(y) %>%
+    tbl_df() %>%
+    sf::st_as_sf(coords = c("x","y"))
+  
+  x <- velox(x)
+  yield <- x$extract_points(points_bind) %>%
+    tbl_df() %>% 
+    rename(yield = V1) 
+  # z <- raster::extract(x, points_bind[, 1:2]) %>%
+  #   tbl_df()
+  
+  yield_by_bind <- bind_cols(st_coordinates(points_bind) %>% tbl_df(), yield, points_bind) %>%
+    dplyr::mutate(BinMatrix = as.factor(BinMatrix))
+  
+  potential <- yield_by_bind %>%
+    group_by(BinMatrix) %>%
+    summarise(potential = quantile(yield, probs = 0.90, na.rm =  TRUE))
+  
+  gap_analysis <- left_join(yield_by_bind, potential, by = 'BinMatrix') %>%
+    # dplyr::mutate(potential = ifelse(is.na(yield), NA, potential)) %>%
+    dplyr::mutate(potential = if_else(is.na(yield), NA_real_, potential)) %>%
+    # dplyr::mutate(potential = case_when( is.na(yield) == NA_real_ ~ NA_real_, TRUE ~ potential))
+    dplyr::mutate(gap = potential - yield)
+  
+  ## rasterize
+  # m <- x$as.RasterLayer(band = 1)
+  
+  coords <- gap_analysis %>%
+    dplyr::select(X, Y) %>%
+    data.frame 
+  
+  potential <- gap_analysis %>%
+    # dplyr::select(!!var) %>%
+    dplyr::select(potential) %>%
+    pull
+  
+  gap <- gap_analysis %>%
+    # dplyr::select(!!var) %>%
+    dplyr::select(gap) %>%
+    pull
+  
+  
+  potential <- rasterize(coords, y, potential, fun = mean)
+  gap <- rasterize(coords, y, gap, fun = mean)
+  
+  
+  writeRaster(potential, filename = out_potential, format = "GTiff", overwrite = TRUE)
+  writeRaster(gap, filename = out_gap, format = "GTiff", overwrite = TRUE)
+  
+  # writeRaster(potential, filename="/mnt/workspace_cluster_9/AgMetGaps/Inputs/iizumi/maize/gap_1981_maize.tif", format = "GTiff", overwrite = TRUE)
+  # writeRaster(gap, filename="/mnt/workspace_cluster_9/AgMetGaps/Inputs/iizumi/maize/gap_1981_maize.tif", format = "GTiff", overwrite = TRUE)
+  rm(c(points_bind, yield, yield_by_bind, gap_analysis, coords, potential, gap))
+  gc(reset = T)
+  
+}
+
+
+
+
+
+
+###########
+
+
+bind_raster <- purrr::map(.x = bind_file, .f = raster::raster)
 library(future)
 library(future.apply)
 plan(list(tweak(multisession, workers = 3), tweak(multisession, workers = 4)))
@@ -149,6 +245,9 @@ make_gap <- function(x, y, out_potential, out_gap){
   # y <- raster('/mnt/workspace_cluster_9/AgMetGaps/Inputs/Yield_Gaps_ClimateBins/maize_yieldgap_netcdf/YieldGap_maize_2000_BaseGDD_8_MaxYieldPct_95_ContourFilteredClimateSpace_10x10_prec_BinMatrix.nc') 
   
   # r3 <- overlay(x, y, fun=function(x,y){return(y)})
+  
+  
+  
   points_bind <- rasterToPoints(y) %>%
     tbl_df() %>%
     sf::st_as_sf(coords = c("x","y"))
