@@ -49,20 +49,33 @@ rotate_raster <- function(x){
 
 
 
-make_gap <- function(yield, bind, out_path){
+make_gap <- function(yield_path, bind_path, out_path){
   
-  yield <- yield_file[[1]]
-  plan(multisession, workers = 10)
+  yield_path <- yield_file[[1]]
+  bind <- raster(bind_file[[1]])
+  plan(sequential)
   
   ## esta parte no es necesario hacerla en paralelo
   
-  yields <- fraster(yield)
+  yields <- fraster(yield_path)
   
-  points_bind <- rasterToPoints(y) %>%
+  ## esta parte es lenta
+  tic('data.frame and sf')
+  
+  y <- as.data.frame(bind, xy = T) 
+  toc()
+
+  points_bind <- rasterToPoints(bind) %>%
     tbl_df() %>%
     sf::st_as_sf(coords = c("x","y"))
+
+  
+  x <- yields[[1]]
+  
+  ## quiza esta parte si hacerlo en paralelo
   
   x <- velox(x)
+  
   yield <- x$extract_points(points_bind) %>%
     tbl_df() %>% 
     rename(yield = V1) 
