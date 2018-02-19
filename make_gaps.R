@@ -10,6 +10,7 @@ library(stringr)
 library(future)
 library(future.apply)
 library(raster)
+library(glue)
 
 Iizumi <- '/mnt/workspace_cluster_9/AgMetGaps/Inputs/iizumi/'
 season <- c("major", "spring")
@@ -46,43 +47,52 @@ rotate_raster <- function(x){
     raster::rotate(x, overwrite = T)
 }
 
+##
+out_names <- function(x, type){
+  
+  # x <- "/mnt/workspace_cluster_9/AgMetGaps/Inputs/iizumi//maize_major/yield_1981"
+  
+  glue("{str_extract(x, pattern = '^[^.]*')}{type}")
+  
+  
+  
+}
+
+
+out_potential <- out_names(basename(yield_path), type = '_potential.tif')
+out_gap <- out_names(basename(yield_path), type = '_gap.tif')
+
+
+out_path <- '/mnt/workspace_cluster_9/AgMetGaps/gaps/'
 
 
 
 make_gap <- function(yield_path, bind_path, out_path){
   
-  yield_path <- yield_file[[1]]
-  bind <- raster(bind_file[[1]])
-  plan(sequential)
+  # yield_path <- yield_file[[1]][[1]]
+  # bind <- raster(bind_file[[1]])
+  # plan(sequential)
   
   ## esta parte no es necesario hacerla en paralelo
   
-  yields <- fraster(yield_path)
+  # yield <- fraster(yield_path)
+  yield <- rotate_raster(yield_path)
   
   ## esta parte es lenta
-  tic('data.frame and sf')
-  
-  y <- as.data.frame(bind, xy = T) 
-  toc()
 
   points_bind <- rasterToPoints(bind) %>%
     tbl_df() %>%
     sf::st_as_sf(coords = c("x","y"))
-
   
-  x <- yields[[1]]
+  yield <- velox(yield)
   
-  ## quiza esta parte si hacerlo en paralelo
-  
-  x <- velox(x)
-  
-  yield <- x$extract_points(points_bind) %>%
+  yield_points <- yield$extract_points(points_bind) %>%
     tbl_df() %>% 
     rename(yield = V1) 
   # z <- raster::extract(x, points_bind[, 1:2]) %>%
   #   tbl_df()
   
-  yield_by_bind <- bind_cols(st_coordinates(points_bind) %>% tbl_df(), yield, points_bind) %>%
+  yield_by_bind <- bind_cols(st_coordinates(points_bind) %>% tbl_df(), yield_points, points_bind) %>%
     dplyr::mutate(BinMatrix = as.factor(BinMatrix))
   
   potential <- yield_by_bind %>%
@@ -113,21 +123,50 @@ make_gap <- function(yield_path, bind_path, out_path){
     pull
   
   
-  potential <- rasterize(coords, y, potential, fun = mean)
-  gap <- rasterize(coords, y, gap, fun = mean)
+  potential <- rasterize(coords, bind, potential, fun = mean)
+  gap <- rasterize(coords, bind, gap, fun = mean)
+  
+  
+  glue("{out_path}{out_names(basename(yield_path), type = '_potential.tif')}")
+  
+  
+  out_potential <- glue("{out_path}{out_names(basename(yield_path), type = '_potential.tif')}")
+  out_gap <- glue("{out_path}{out_names(basename(yield_path), type = '_gap.tif')}")
   
   
   writeRaster(potential, filename = out_potential, format = "GTiff", overwrite = TRUE)
   writeRaster(gap, filename = out_gap, format = "GTiff", overwrite = TRUE)
   
-  # writeRaster(potential, filename="/mnt/workspace_cluster_9/AgMetGaps/Inputs/iizumi/maize/gap_1981_maize.tif", format = "GTiff", overwrite = TRUE)
-  # writeRaster(gap, filename="/mnt/workspace_cluster_9/AgMetGaps/Inputs/iizumi/maize/gap_1981_maize.tif", format = "GTiff", overwrite = TRUE)
   rm(c(points_bind, yield, yield_by_bind, gap_analysis, coords, potential, gap))
   gc(reset = T)
   
 }
 
+future.apply::future_lapply(X = 1:length(yield_file[[1]]), FUN = rotate_raster)
+yield_file
+bind_file
+## que salgan con el nombre del cultivo
 
+run_gap <- function(yield_path, bind_path, out_path){
+  
+  # plan(sequential)
+  # plan(multisession, workers = 10)
+  # yield_paths <- yield_file[[1]]
+  # bind_path <- bind_file[[1]]
+  x <- rotate_raster(x)
+  
+  make_gap(yield_paths[i],
+           bind_path,
+           out_path)
+  
+  future.apply::future_lapply(X = 1:length(yield_paths), FUN = function(i) make_gap(yield_paths[i],
+                                                                                    bind_path,
+                                                                                    out_path))
+  
+
+
+  
+}
 
 
 
