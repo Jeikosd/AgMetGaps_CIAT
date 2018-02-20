@@ -183,13 +183,8 @@ run_gap <- function(yield_path, bind_path, out_path){
   # plan(multisession, workers = 10)
   # yield_paths <- yield_file[[1]]
   # bind_path <- bind_file[[1]]
-  x <- rotate_raster(x)
-  
-  make_gap(yield_paths[i],
-           bind_path,
-           out_path)
-  
-  future.apply::future_lapply(X = 1:length(yield_paths), FUN = function(i) make_gap(yield_paths[i],
+
+  future.apply::future_lapply(X = 1:length(yield_path), FUN = function(i) make_gap(yield_path[i],
                                                                                     bind_path,
                                                                                     out_path))
   
@@ -198,6 +193,9 @@ run_gap <- function(yield_path, bind_path, out_path){
   
 }
 
+options(future.globals.maxSize= 8912896000)
+plan(multisession, workers = 8)
+purrr::map2(.x = yield_file, .y = bind_file, .f = run_gap, out_path)
 
 
 
