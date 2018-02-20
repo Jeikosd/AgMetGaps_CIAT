@@ -33,12 +33,12 @@ bind_file <- list.dirs(climate_binds, recursive = FALSE) %>%
 bind_file <- purrr::map(.x = bind_file, .f = list.files, full.names = T, pattern = '*BinMatrix.nc$')
 
 
-
-fraster <- function(x){
-
-  x <- future.apply::future_lapply(X = x, FUN = rotate_raster)
-  
-}
+# 
+# fraster <- function(x){
+# 
+#   x <- future.apply::future_lapply(X = x, FUN = rotate_raster)
+#   
+# }
 
 ## rotar ya que Iizumi lo necesita
 rotate_raster <- function(x){
@@ -58,11 +58,22 @@ out_names <- function(x, type){
   
 }
 
+mkdirs <- function(fp) {
+  
+  if(!file.exists(fp)) {
+    mkdirs(dirname(fp))
+    dir.create(fp)
+  }
+  
+} 
 
-out_potential <- out_names(basename(yield_path), type = '_potential.tif')
+            
+  
+
+out_potential <- out_names(out_name, type = '_potential.tif')
 out_gap <- out_names(basename(yield_path), type = '_gap.tif')
 
-
+dirname(out_name)
 out_path <- '/mnt/workspace_cluster_9/AgMetGaps/gaps/'
 
 
@@ -76,6 +87,17 @@ make_gap <- function(yield_path, bind_path, out_path){
   ## esta parte no es necesario hacerla en paralelo
   
   # yield <- fraster(yield_path)
+  
+  out_names <- function(x, type){
+    
+    # x <- "/mnt/workspace_cluster_9/AgMetGaps/Inputs/iizumi//maize_major/yield_1981"
+    
+    glue::glue("{stringr::str_extract(x, pattern = '^[^.]*')}{type}")
+    
+    
+    
+  }
+  
   yield <- rotate_raster(yield_path)
   
   ## esta parte es lenta
@@ -127,18 +149,26 @@ make_gap <- function(yield_path, bind_path, out_path){
   gap <- rasterize(coords, bind, gap, fun = mean)
   
   
-  glue("{out_path}{out_names(basename(yield_path), type = '_potential.tif')}")
+  # glue("{out_path}{out_names(basename(yield_path), type = '_potential.tif')}")
   
   
-  out_potential <- glue("{out_path}{out_names(basename(yield_path), type = '_potential.tif')}")
-  out_gap <- glue("{out_path}{out_names(basename(yield_path), type = '_gap.tif')}")
+  out_data <- str_replace(string = glue::glue('{yield_path}'),
+                          pattern = 'Inputs', replacement = 'gaps') %>%
+    dirname()
   
+  mkdirs(out_data)
   
+
+  out_potential <- glue("{out_data}/{out_names(basename(yield_path), type = '_potential.tif')}")
+  out_gap <- glue("{out_data}/{out_names(basename(yield_path), type = '_gap.tif')}")
+
   writeRaster(potential, filename = out_potential, format = "GTiff", overwrite = TRUE)
   writeRaster(gap, filename = out_gap, format = "GTiff", overwrite = TRUE)
   
-  rm(c(points_bind, yield, yield_by_bind, gap_analysis, coords, potential, gap))
+  rm('points_bind', 'yield', 'yield_by_bind', 'gap_analysis', 'coords', 'potential', 'gap')
   gc(reset = T)
+  
+  cat(glue('finished {out_potential}'))
   
 }
 
