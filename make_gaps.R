@@ -70,18 +70,21 @@ mkdirs <- function(fp) {
             
   
 
-out_potential <- out_names(out_name, type = '_potential.tif')
-out_gap <- out_names(basename(yield_path), type = '_gap.tif')
+# out_potential <- out_names(out_name, type = '_potential.tif')
+# out_gap <- out_names(basename(yield_path), type = '_gap.tif')
 
-dirname(out_name)
-out_path <- '/mnt/workspace_cluster_9/AgMetGaps/gaps/'
+# dirname(out_name)
+# out_path <- '/mnt/workspace_cluster_9/AgMetGaps/gaps/'
+
+out_path <-'/home/jmesa/'
 
 
 
-make_gap <- function(yield_path, bind_path, out_path){
+make_gap <- function(yield_path, bind, out_path){
   
-  # yield_path <- yield_file[[1]][[1]]
-  # bind <- raster(bind_file[[1]])
+  yield_path <- yield_path[i]
+  bind <- bind_path
+  out_path
   # plan(sequential)
   
   ## esta parte no es necesario hacerla en paralelo
@@ -99,10 +102,11 @@ make_gap <- function(yield_path, bind_path, out_path){
   }
   
   yield <- rotate_raster(yield_path)
-  
+  bind <- raster(bind)
   ## esta parte es lenta
 
-  points_bind <- rasterToPoints(bind) %>%
+  points_bind <- bind %>%
+    rasterToPoints() %>%
     tbl_df() %>%
     sf::st_as_sf(coords = c("x","y"))
   
@@ -153,8 +157,11 @@ make_gap <- function(yield_path, bind_path, out_path){
   
   
   out_data <- str_replace(string = glue::glue('{yield_path}'),
-                          pattern = 'Inputs', replacement = 'gaps') %>%
+                          pattern = '/mnt/workspace_cluster_9/AgMetGaps', replacement = out_path) %>%
     dirname()
+  
+
+  
   
   mkdirs(out_data)
   
@@ -181,7 +188,7 @@ run_gap <- function(yield_path, bind_path, out_path){
   
   # plan(sequential)
   # plan(multisession, workers = 10)
-  # yield_paths <- yield_file[[1]]
+  # yield_path <- yield_file[[1]]
   # bind_path <- bind_file[[1]]
 
   future.apply::future_lapply(X = 1:length(yield_path), FUN = function(i) make_gap(yield_path[i],
@@ -194,7 +201,7 @@ run_gap <- function(yield_path, bind_path, out_path){
 }
 
 options(future.globals.maxSize= 8912896000)
-plan(multisession, workers = 8)
+plan(multisession, workers = 9)
 purrr::map2(.x = yield_file, .y = bind_file, .f = run_gap, out_path)
 
 
